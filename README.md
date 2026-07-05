@@ -25,6 +25,8 @@ Built with **Next.js · Supabase · Google Gemini · Tailwind CSS**
   4. Replace the placeholder below with that URL (just paste it on its own line)
 -->
 
+
+
 https://github.com/user-attachments/assets/REPLACE_WITH_UPLOADED_VIDEO_URL
 
 </div>
