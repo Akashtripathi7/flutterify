@@ -16,18 +16,7 @@ Built with **Next.js · Supabase · Google Gemini · Tailwind CSS**
 
 <div align="center">
 
-<!-- 
-  To embed the video:
-  1. Open any GitHub issue or PR in this repo
-  2. Drag and drop docs/demo.mov into the comment box
-  3. Wait for it to upload — GitHub gives you a URL like:
-     https://github.com/user-attachments/assets/...
-  4. Replace the placeholder below with that URL (just paste it on its own line)
--->
-
-
-
-https://github.com/user-attachments/assets/REPLACE_WITH_UPLOADED_VIDEO_URL
+https://github.com/Akashtripathi7/flutterify/releases/download/v1.0.0/demo.mov
 
 </div>
 
