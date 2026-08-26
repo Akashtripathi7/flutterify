@@ -28,7 +28,7 @@ export default async function QuestionPage({
   const [{ data: answerRow }, { data: progressRow }] = await Promise.all([
     supabase
       .from("question_answers")
-      .select("answer_md, flashcards")
+      .select("answer_md, hinglish_md, flashcards, hinglish_flashcards")
       .eq("question_id", questionId)
       .maybeSingle(),
     supabase
@@ -42,7 +42,9 @@ export default async function QuestionPage({
   // The explanation is generated once and stored globally in question_answers,
   // so a return visit loads it straight from the DB (no regeneration).
   const initialAnswer = answerRow?.answer_md ?? null;
+  const initialHinglishMd = (answerRow as { hinglish_md?: string } | null)?.hinglish_md ?? null;
   const initialFlashcards = (answerRow?.flashcards as Flashcard[]) ?? [];
+  const initialHinglishFlashcards = ((answerRow as { hinglish_flashcards?: Flashcard[] } | null)?.hinglish_flashcards as Flashcard[]) ?? [];
 
   const backHref = container.kind === "day" ? `/day/${container.day.id}` : "/drills";
   const backLabel =
@@ -60,7 +62,9 @@ export default async function QuestionPage({
         <QuestionView
           question={question}
           initialAnswer={initialAnswer}
+          initialHinglishMd={initialHinglishMd}
           initialFlashcards={initialFlashcards}
+          initialHinglishFlashcards={initialHinglishFlashcards}
           initialStatus={(progressRow?.status as "done" | "flagged") ?? null}
           initialCode={(progressRow?.code as string) ?? null}
           hasSavedAnswer={!!initialAnswer}

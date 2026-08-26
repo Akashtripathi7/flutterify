@@ -25,7 +25,9 @@ type Status = "done" | "flagged" | null;
 export function QuestionView({
   question,
   initialAnswer,
+  initialHinglishMd,
   initialFlashcards,
+  initialHinglishFlashcards,
   initialStatus,
   initialCode,
   hasSavedAnswer,
@@ -36,7 +38,9 @@ export function QuestionView({
 }: {
   question: { id: string; number: number; label: string | null; title: string; markdown: string };
   initialAnswer: string | null;
+  initialHinglishMd: string | null;
   initialFlashcards: Flashcard[];
+  initialHinglishFlashcards: Flashcard[];
   initialStatus: Status;
   initialCode: string | null;
   hasSavedAnswer: boolean;
@@ -47,7 +51,10 @@ export function QuestionView({
 }) {
   const router = useRouter();
   const [answer, setAnswer] = useState<string | null>(initialAnswer);
+  const [hinglishMd, setHinglishMd] = useState<string | null>(initialHinglishMd);
   const [cards, setCards] = useState<Flashcard[]>(initialFlashcards);
+  const [hinglishCards, setHinglishCards] = useState<Flashcard[]>(initialHinglishFlashcards);
+  const [lang, setLang] = useState<"en" | "hi">("en");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>(initialStatus);
@@ -78,7 +85,9 @@ export function QuestionView({
         return;
       }
       setAnswer(data.markdown);
+      setHinglishMd(data.hinglishMd ?? "");
       setCards(data.flashcards ?? []);
+      setHinglishCards(data.hinglishFlashcards ?? []);
       if (data.cached) setMeta("Loaded the saved explanation (free).");
       else if (data.saved === false)
         setMeta("Generated, but couldn't be saved — run the latest Supabase migration to cache it.");
@@ -266,7 +275,7 @@ export function QuestionView({
 
         {answer && !loading && (
           <div className="card overflow-hidden">
-            {/* colourful header strip */}
+            {/* header strip */}
             <div className="flex items-center justify-between bg-gradient-to-r from-primary to-[#ff8a5c] px-6 py-3">
               <span className="inline-flex items-center gap-1.5 text-sm font-extrabold text-white">
                 <Sparkles size={15} /> {guided ? "Guided walkthrough" : "In-depth explanation"}
@@ -286,10 +295,60 @@ export function QuestionView({
                 </button>
               </div>
             </div>
+
+            {/* Language tab bar */}
+            <div className="flex border-b border-border bg-elevated">
+              <button
+                onClick={() => setLang("en")}
+                className={`flex items-center gap-2 px-6 py-3 text-sm font-bold transition-colors ${
+                  lang === "en"
+                    ? "border-b-2 border-primary text-primary"
+                    : "text-muted hover:text-ink"
+                }`}
+              >
+                🇬🇧 English
+              </button>
+              <button
+                onClick={() => setLang("hi")}
+                className={`flex items-center gap-2 px-6 py-3 text-sm font-bold transition-colors ${
+                  lang === "hi"
+                    ? "border-b-2 border-primary text-primary"
+                    : "text-muted hover:text-ink"
+                }`}
+              >
+                🇮🇳 Hinglish
+              </button>
+            </div>
+
             <div className="p-6">
-              <MarkdownView variant="answer">{answer}</MarkdownView>
-              <Flashcards cards={cards} />
-              <QuickRevision questionId={question.id} summary={summary} cards={cards} />
+              {lang === "en" ? (
+                <>
+                  <MarkdownView variant="answer">{answer}</MarkdownView>
+                  <Flashcards cards={cards} />
+                  <QuickRevision questionId={question.id} summary={summary} cards={cards} />
+                </>
+              ) : (
+                <>
+                  {hinglishMd ? (
+                    <>
+                      <MarkdownView variant="answer">{hinglishMd}</MarkdownView>
+                      <Flashcards cards={hinglishCards.length > 0 ? hinglishCards : cards} />
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center gap-3 py-8 text-center">
+                      <span className="text-3xl">🇮🇳</span>
+                      <p className="text-sm font-semibold text-ink">Hinglish explanation not generated yet.</p>
+                      <p className="text-xs text-muted">Click Regenerate to get both English and Hinglish.</p>
+                      <button
+                        onClick={() => generate(true)}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-bold text-white transition-opacity hover:opacity-90"
+                      >
+                        <RefreshCw size={14} /> Regenerate now
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
               {meta && <p className="mt-4 text-[11px] text-muted">{meta}</p>}
             </div>
           </div>

@@ -32,13 +32,15 @@ export async function POST(req: Request) {
   if (!body.regenerate) {
     const { data: cached } = await supabase
       .from("question_answers")
-      .select("answer_md, flashcards")
+      .select("answer_md, hinglish_md, flashcards, hinglish_flashcards")
       .eq("question_id", questionId)
       .maybeSingle();
     if (cached?.answer_md) {
       return NextResponse.json({
         markdown: cached.answer_md,
+        hinglishMd: cached.hinglish_md ?? "",
         flashcards: cached.flashcards ?? [],
+        hinglishFlashcards: cached.hinglish_flashcards ?? [],
         cached: true,
       });
     }
@@ -90,7 +92,9 @@ export async function POST(req: Request) {
     track_id: containerId,
     day_id: containerId,
     answer_md: answer.markdown,
+    hinglish_md: answer.hinglishMd,
     flashcards: answer.flashcards,
+    hinglish_flashcards: answer.hinglishFlashcards,
     model: MODEL,
     input_tokens: answer.inputTokens,
     output_tokens: answer.outputTokens,
@@ -118,7 +122,9 @@ export async function POST(req: Request) {
 
   return NextResponse.json({
     markdown: answer.markdown,
+    hinglishMd: answer.hinglishMd,
     flashcards: answer.flashcards,
+    hinglishFlashcards: answer.hinglishFlashcards,
     cached: false,
     tokensUsed: spent,
     saved: !cacheError,

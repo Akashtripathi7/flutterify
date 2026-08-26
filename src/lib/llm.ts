@@ -1,5 +1,5 @@
 import type { Mode } from "./curriculum";
-import { systemPromptFor, buildUserPrompt } from "./prompts";
+import { systemPromptFor, buildUserPrompt, HINGLISH_SYSTEM, buildHinglishPrompt } from "./prompts";
 
 // Free LLM provider. Default = Google Gemini (generous free tier from
 // https://aistudio.google.com/apikey). Uses the raw REST API so there's no SDK
@@ -14,7 +14,9 @@ export interface Flashcard {
 
 export interface GeneratedAnswer {
   markdown: string;
+  hinglishMd: string;
   flashcards: Flashcard[];
+  hinglishFlashcards: Flashcard[];
   inputTokens: number;
   outputTokens: number;
   model: string;
@@ -36,11 +38,13 @@ async function callGemini(opts: {
   contextLabel: string;
   questionMarkdown: string;
   maxOutputTokens: number;
+  systemPrompt?: string;
+  userPrompt?: string;
 }): Promise<RawResult> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
   const body = {
-    systemInstruction: { parts: [{ text: systemPromptFor(opts.mode) }] },
-    contents: [{ role: "user", parts: [{ text: buildUserPrompt(opts) }] }],
+    systemInstruction: { parts: [{ text: opts.systemPrompt ?? systemPromptFor(opts.mode) }] },
+    contents: [{ role: "user", parts: [{ text: opts.userPrompt ?? buildUserPrompt(opts) }] }],
     // Plain markdown (NOT JSON mode): far more resilient to length — a long
     // answer still renders even if it runs close to the limit, whereas a
     // truncated JSON blob is unparseable and shows as broken text.
@@ -109,17 +113,7 @@ async function callGemini(opts: {
   };
 }
 
-export async function generateAnswer(opts: {
-  contextLabel: string;
-  questionMarkdown: string;
-  mode: Mode;
-}): Promise<GeneratedAnswer> {
-  if (!API_KEY) {
-    throw new Error("GEMINI_API_KEY is not set. Add a free key from https://aistudio.google.com/apikey to .env.local.");
-  }
-
-  // First attempt with a roomy budget; if it still hits the cap, retry once
-  // bigger so the learner never sees a half-finished answer.
+async function callWithRetry(opts: Parameters<typeof callGemini>[0]): Promise<RawResult> {
   let result;
   try {
     result = await callGemini({ ...opts, maxOutputTokens: 24576 });
@@ -129,22 +123,44 @@ export async function generateAnswer(opts: {
   if (result.finishReason === "MAX_TOKENS") {
     result = await callGemini({ ...opts, maxOutputTokens: 40000 });
   }
+  return result;
+}
+
+export async function generateAnswer(opts: {
+  contextLabel: string;
+  questionMarkdown: string;
+  mode: Mode;
+}): Promise<GeneratedAnswer> {
+  if (!API_KEY) {
+    throw new Error("GEMINI_API_KEY is not set. Add a free key from https://aistudio.google.com/apikey to .env.local.");
+  }
+
+  // Fire English and Hinglish calls in parallel to save time.
+  const [result, hinglishResult] = await Promise.all([
+    callWithRetry({ ...opts, maxOutputTokens: 24576 }),
+    callWithRetry({
+      ...opts,
+      maxOutputTokens: 24576,
+      systemPrompt: HINGLISH_SYSTEM,
+      userPrompt: buildHinglishPrompt(opts),
+    }),
+  ]);
 
   if (!result.text.trim()) {
-    const why =
-      result.finishReason === "SAFETY"
-        ? "the safety filter blocked it"
-        : `reason: ${result.finishReason}`;
+    const why = result.finishReason === "SAFETY" ? "the safety filter blocked it" : `reason: ${result.finishReason}`;
     throw new Error(`The AI returned an empty answer (${why}). Please try again.`);
   }
 
   const { markdown, flashcards } = splitAnswerAndCards(result.text);
+  const { markdown: hinglishMd, flashcards: hinglishFlashcards } = splitAnswerAndCards(hinglishResult.text);
 
   return {
     markdown,
+    hinglishMd,
     flashcards,
-    inputTokens: result.inputTokens,
-    outputTokens: result.outputTokens,
+    hinglishFlashcards,
+    inputTokens: result.inputTokens + hinglishResult.inputTokens,
+    outputTokens: result.outputTokens + hinglishResult.outputTokens,
     model: MODEL,
   };
 }
