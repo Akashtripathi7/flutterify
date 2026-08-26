@@ -134,49 +134,67 @@ Generate exactly the number of questions requested. Every question must have its
 
 export function buildQuickPrepResumePrompt(opts: {
   resumeText: string;
-  questionCount: number;
+  batchSize: number;
+  existingQuestions: string[];
 }): string {
+  const avoidBlock = opts.existingQuestions.length > 0
+    ? `\n\nQuestions already generated (do NOT repeat or overlap these):\n${opts.existingQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n`
+    : "";
+
   return `Here is the candidate's resume:
 
 ---
 ${opts.resumeText}
 ---
+${avoidBlock}
+Generate exactly ${opts.batchSize} NEW interview questions that an interviewer would ask specifically about THIS candidate's resume. Each question must be distinct and not overlap with any already generated above.
 
-Generate ${opts.questionCount} realistic interview questions that an interviewer would ask specifically about THIS candidate's resume — their actual projects, metrics, decisions, and transitions. Cover these categories proportionally:
-1. Deep-dives on specific resume bullet points (the 78% size reduction, the Riverpod migration, the OCR feature, the Bluetooth integration, etc.)
-2. Architecture and technical decisions they made
-3. Leadership, mentoring, and team collaboration
-4. Challenges, failures, and learnings
-5. Why they changed companies / what they are looking for next
+Cover these categories (distribute across all batches — go deeper each time):
+1. Deep technical deep-dives on specific resume bullets (78% size reduction how? Riverpod migration decisions? OCR implementation? Bluetooth BLE protocol? Dynamic icon switching approach?)
+2. Architecture decisions and trade-offs they made in real projects
+3. "What went wrong" — failures, hard bugs, production incidents, learnings
+4. Leadership, mentoring, code review approach, team conflict handling
+5. System design — "design X" based on systems they've already built
+6. Company transition reasons, what they are looking for next, values alignment
+7. Dart/Flutter internals they must know given their seniority level
 
-For each question, write the full model answer using the candidate's own resume details — make the answer feel authentic, specific, and impressive.`;
+IMPORTANT: Every behavioral answer MUST reference at least one specific metric, project name, or decision from the resume above (78%, 150MB→33MB, Nupipay, Handpickd, OCR, BLE, 9 apps, etc.).`;
 }
 
 export function buildQuickPrepJDPrompt(opts: {
   jdText: string;
   resumeText: string;
-  questionCount: number;
+  batchSize: number;
+  existingQuestions: string[];
 }): string {
+  const avoidBlock = opts.existingQuestions.length > 0
+    ? `\n\nQuestions already generated (do NOT repeat or overlap these):\n${opts.existingQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n`
+    : "";
+
   return `Here is the Job Description:
 
 ---
 ${opts.jdText}
 ---
 
-Here is the candidate's resume (for context, so answers can reference real experience):
+Here is the candidate's resume (answers must reference real experience from this):
 
 ---
 ${opts.resumeText}
 ---
+${avoidBlock}
+Generate exactly ${opts.batchSize} NEW interview questions a hiring manager at THIS company would ask for THIS specific role. Each must be distinct from any already generated above.
 
-Generate ${opts.questionCount} interview questions that a hiring manager at THIS company would ask for THIS specific role. Cover:
-1. Technical requirements explicitly mentioned in the JD (match each key tech/skill listed)
-2. Role-specific scenarios the JD implies (scale, product domain, platform)
-3. Candidate fit — how the candidate's background maps to the role's needs
-4. Culture and leadership signals the JD reveals
-5. "Gotcha" technical depth questions for the seniority level described
+Cover these in depth across batches:
+1. Every key technology/skill explicitly listed in the JD — go deep on each
+2. Role-specific scenarios the JD implies (scale, domain, platform, team size)
+3. "Tell me about a time you..." — behavioral questions mapped to JD requirements
+4. System design questions relevant to this company's product domain
+5. "Gotcha" depth questions matching the seniority level in the JD
+6. Culture/values fit questions revealed by the JD's language and priorities
+7. Candidate fit bridging — where does this resume shine for THIS role?
 
-For each question, write a model answer that bridges the JD requirements with the candidate's actual resume — show how they are the right fit with specific examples.`;
+IMPORTANT: Model answers must bridge the JD requirement with the candidate's real resume experience. Reference specific projects and metrics.`;
 }
 
 export function systemPromptFor(mode: Mode): string {
