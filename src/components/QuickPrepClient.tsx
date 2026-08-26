@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  FileText, Briefcase, Sparkles, Loader2, ChevronDown, ChevronUp,
-  Upload, AlertCircle, User, Trash2, Plus, ArrowLeft, BookOpen,
-  Zap, RefreshCw, MessageSquare, Globe, Languages,
+  FileText, Briefcase, Loader2, ChevronDown, ChevronUp,
+  Upload, AlertCircle, User, Trash2, Plus, ArrowLeft,
+  Zap, RefreshCw, MessageSquare, Globe, Languages, CheckCircle2,
+  Circle, Sparkles, BookOpen, Target,
 } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
 
@@ -50,7 +51,7 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
-// ── PDF text extraction ────────────────────────────────────────────────────
+// ── PDF extraction ─────────────────────────────────────────────────────────
 async function extractTextFromFile(file: File): Promise<string> {
   if (file.size > 3 * 1024 * 1024)
     throw new Error("File is too large (max 3 MB). Please paste the text directly.");
@@ -82,25 +83,19 @@ async function extractTextFromFile(file: File): Promise<string> {
     }
     const cleaned = text.replace(/\s+/g, " ").trim().slice(0, 25000);
     if (cleaned.length < 50)
-      throw new Error(
-        "This PDF uses compressed/encoded streams and cannot be read in the browser. " +
-        "Please paste the JD text directly into the text area below."
-      );
+      throw new Error("This PDF uses compressed streams. Please paste the JD text directly.");
     return cleaned;
   }
   return (await file.text()).slice(0, 25000);
 }
 
-// ── Markdown renderer for rich prose-qp answers ───────────────────────────
+// ── Rich answer renderer ───────────────────────────────────────────────────
 function RichAnswer({ md, isHinglish = false }: { md: string; isHinglish?: boolean }) {
-  // Split out the "## ✅" interview section to give it a special green box
   const interviewMarker = /^##\s+✅/m;
   const matchPos = md.search(interviewMarker);
-
   if (matchPos !== -1) {
     const before = md.slice(0, matchPos);
     const after = md.slice(matchPos).replace(/^##\s+✅[^\n]*\n?/, "");
-
     return (
       <div className={`prose-qp ${isHinglish ? "prose-qp-hi" : ""}`}>
         <MarkdownView variant="answer">{before}</MarkdownView>
@@ -111,7 +106,6 @@ function RichAnswer({ md, isHinglish = false }: { md: string; isHinglish?: boole
       </div>
     );
   }
-
   return (
     <div className={`prose-qp ${isHinglish ? "prose-qp-hi" : ""}`}>
       <MarkdownView variant="answer">{md}</MarkdownView>
@@ -119,15 +113,9 @@ function RichAnswer({ md, isHinglish = false }: { md: string; isHinglish?: boole
   );
 }
 
-// ── QACard: lazy-loading per-question ────────────────────────────────────
-function QACard({
-  q: initialQ,
-  index,
-  onDelete,
-}: {
-  q: Question;
-  index: number;
-  onDelete: (id: string) => void;
+// ── QACard ─────────────────────────────────────────────────────────────────
+function QACard({ q: initialQ, index, onDelete }: {
+  q: Question; index: number; onDelete: (id: string) => void;
 }) {
   const [q, setQ] = useState(initialQ);
   const [open, setOpen] = useState(false);
@@ -139,31 +127,22 @@ function QACard({
   const [deleting, setDeleting] = useState(false);
   const [showFollowups, setShowFollowups] = useState(false);
 
+  const hasAnswer = Boolean(q.answer_md);
+  const hasFollowup = Boolean(q.followup_md);
+
   async function generateAnswer(regenerate = false) {
     setAnswerLoading(true);
     setAnswerError(null);
-    const { ok, data, error } = await api({
-      action: "generate_answer",
-      questionId: q.id,
-      regenerate,
-    });
+    const { ok, data, error } = await api({ action: "generate_answer", questionId: q.id, regenerate });
     setAnswerLoading(false);
     if (!ok) { setAnswerError(error || "Generation failed. Try again."); return; }
-    setQ((prev) => ({
-      ...prev,
-      answer_md: data.answer_md as string,
-      answer_hi_md: data.answer_hi_md as string,
-    }));
+    setQ((prev) => ({ ...prev, answer_md: data.answer_md as string, answer_hi_md: data.answer_hi_md as string }));
   }
 
   async function generateFollowup(regenerate = false) {
     setFollowupLoading(true);
     setFollowupError(null);
-    const { ok, data, error } = await api({
-      action: "generate_followup",
-      questionId: q.id,
-      regenerate,
-    });
+    const { ok, data, error } = await api({ action: "generate_followup", questionId: q.id, regenerate });
     setFollowupLoading(false);
     if (!ok) { setFollowupError(error || "Generation failed. Try again."); return; }
     setQ((prev) => ({ ...prev, followup_md: data.followup_md as string }));
@@ -177,184 +156,168 @@ function QACard({
     onDelete(q.id);
   }
 
-  const hasAnswer = Boolean(q.answer_md);
-  const hasFollowup = Boolean(q.followup_md);
-
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-surface">
-      {/* Header */}
-      <div className="flex items-start gap-3 px-5 py-4">
+    <div
+      className={`qp-qa-card ${open ? "qp-qa-card--open" : ""} ${hasAnswer ? "qp-qa-card--answered" : ""}`}
+    >
+      {/* Status stripe */}
+      <div className={`qp-qa-stripe ${hasAnswer ? "qp-qa-stripe--done" : ""}`} />
+
+      {/* Header row */}
+      <div className="qp-qa-header">
         <button
           onClick={() => setOpen((p) => !p)}
-          className="flex flex-1 items-start gap-3 text-left"
+          className="qp-qa-toggle"
+          aria-expanded={open}
         >
-          <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary text-xs font-extrabold text-white">
-            {index + 1}
+          {/* Index badge */}
+          <span className="qp-qa-num">{String(index + 1).padStart(2, "0")}</span>
+
+          {/* Question text */}
+          <span className="qp-qa-question">{q.question}</span>
+
+          {/* Status */}
+          <span className="qp-qa-status-icon">
+            {hasAnswer
+              ? <CheckCircle2 size={16} className="qp-status-done" />
+              : <Circle size={16} className="qp-status-todo" />
+            }
           </span>
-          <span className="flex-1 text-sm font-bold leading-snug text-ink">{q.question}</span>
-          <span className="mt-0.5 shrink-0 text-muted">
-            {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+
+          <span className="qp-qa-chevron">
+            {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </span>
         </button>
-
-        {/* Status badge */}
-        {hasAnswer && !open && (
-          <span className="mt-1 shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-bold text-success">
-            Answered
-          </span>
-        )}
 
         <button
           onClick={handleDelete}
           disabled={deleting}
-          title="Remove this question"
-          className="ml-1 mt-0.5 shrink-0 rounded-lg p-1.5 text-faint transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-40"
+          className="qp-qa-delete"
+          title="Remove question"
         >
-          {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+          {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
         </button>
       </div>
 
-      {/* Body — expands on click */}
+      {/* Expanded body */}
       {open && (
-        <div className="border-t border-border">
-          {/* ── Answer section ── */}
-          <div className="px-5 py-5">
-            {!hasAnswer && !answerLoading && (
-              <div className="flex flex-col items-center gap-3 py-6 text-center">
-                <Zap size={24} className="text-primary/60" />
-                <p className="text-xs text-muted">Tap to generate a detailed answer with full explanation</p>
-                <button
-                  onClick={() => generateAnswer(false)}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-primary to-[#ff8a5c] px-6 py-2.5 text-sm font-bold text-white shadow-[0_6px_18px_-6px_rgb(244_96_58_/_0.5)] transition-opacity hover:opacity-90"
-                >
-                  <Zap size={15} /> Generate answer
-                </button>
-                {answerError && (
-                  <p className="text-xs font-semibold text-danger">{answerError}</p>
-                )}
+        <div className="qp-qa-body">
+          {/* ── No answer yet ── */}
+          {!hasAnswer && !answerLoading && (
+            <div className="qp-generate-prompt">
+              <div className="qp-generate-icon-wrap">
+                <Zap size={22} />
               </div>
-            )}
+              <p className="qp-generate-label">Generate a detailed answer with full explanation</p>
+              <p className="qp-generate-sub">
+                Includes English + Hinglish versions, key points, and exactly what to say in the interview.
+              </p>
+              <button onClick={() => generateAnswer(false)} className="qp-btn-generate">
+                <Zap size={14} /> Generate answer
+              </button>
+              {answerError && <p className="qp-error-inline">{answerError}</p>}
+            </div>
+          )}
 
-            {answerLoading && (
-              <div className="space-y-3 py-4">
-                <div className="flex items-center gap-2 text-xs text-muted">
-                  <Loader2 size={14} className="animate-spin text-primary" />
-                  Generating detailed answer in English + Hinglish simultaneously…
-                </div>
-                {[80, 65, 90, 55, 75].map((w, i) => (
-                  <div key={i} className="shimmer h-3 rounded" style={{ width: `${w}%` }} />
+          {/* ── Loading skeleton ── */}
+          {answerLoading && (
+            <div className="qp-loading-answer">
+              <div className="qp-loading-label">
+                <Loader2 size={13} className="animate-spin" />
+                Generating English + Hinglish simultaneously…
+              </div>
+              <div className="qp-skeleton-lines">
+                {[88, 72, 94, 60, 80, 65].map((w, i) => (
+                  <div key={i} className="shimmer qp-skeleton-line" style={{ width: `${w}%` }} />
                 ))}
               </div>
-            )}
+            </div>
+          )}
 
-            {hasAnswer && !answerLoading && (
-              <>
-                {/* Language tabs */}
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div className="flex rounded-xl border border-border bg-elevated p-0.5">
-                    <button
-                      onClick={() => setLang("en")}
-                      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
-                        lang === "en"
-                          ? "bg-surface text-ink shadow-sm"
-                          : "text-muted hover:text-ink"
-                      }`}
-                    >
-                      <Globe size={12} /> English
-                    </button>
-                    <button
-                      onClick={() => setLang("hi")}
-                      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
-                        lang === "hi"
-                          ? "bg-surface text-ink shadow-sm"
-                          : "text-muted hover:text-ink"
-                      }`}
-                    >
-                      <Languages size={12} /> Hinglish
-                    </button>
-                  </div>
+          {/* ── Answer ── */}
+          {hasAnswer && !answerLoading && (
+            <div className="qp-answer-section">
+              {/* Lang tabs + regen */}
+              <div className="qp-answer-toolbar">
+                <div className="qp-lang-tabs">
                   <button
-                    onClick={() => generateAnswer(true)}
-                    title="Regenerate answer"
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-bold text-muted transition-colors hover:border-border-strong hover:text-ink"
+                    onClick={() => setLang("en")}
+                    className={`qp-lang-tab ${lang === "en" ? "qp-lang-tab--active" : ""}`}
                   >
-                    <RefreshCw size={11} /> Regenerate
+                    <Globe size={11} /> English
+                  </button>
+                  <button
+                    onClick={() => setLang("hi")}
+                    className={`qp-lang-tab ${lang === "hi" ? "qp-lang-tab--active" : ""}`}
+                  >
+                    <Languages size={11} /> Hinglish
                   </button>
                 </div>
+                <button
+                  onClick={() => generateAnswer(true)}
+                  className="qp-btn-regen"
+                  title="Regenerate answer"
+                >
+                  <RefreshCw size={11} /> Regenerate
+                </button>
+              </div>
 
-                {/* Answer content */}
-                <div className="animate-fade-in">
-                  {lang === "en" && q.answer_md && (
-                    <RichAnswer md={q.answer_md} isHinglish={false} />
-                  )}
-                  {lang === "hi" && (
-                    q.answer_hi_md
-                      ? <RichAnswer md={q.answer_hi_md} isHinglish={true} />
-                      : <p className="py-4 text-center text-sm text-muted">Hinglish version not available. Try regenerating.</p>
-                  )}
-                </div>
-
-                {answerError && (
-                  <p className="mt-3 text-xs font-semibold text-danger">{answerError}</p>
+              {/* Content */}
+              <div className="qp-answer-content animate-fade-in">
+                {lang === "en" && q.answer_md && <RichAnswer md={q.answer_md} />}
+                {lang === "hi" && (
+                  q.answer_hi_md
+                    ? <RichAnswer md={q.answer_hi_md} isHinglish />
+                    : <p className="qp-missing">Hinglish not available — try regenerating.</p>
                 )}
-              </>
-            )}
-          </div>
+              </div>
+              {answerError && <p className="qp-error-inline">{answerError}</p>}
+            </div>
+          )}
 
-          {/* ── Follow-up section ── */}
+          {/* ── Follow-ups ── */}
           {hasAnswer && (
-            <div className="border-t border-border bg-elevated/40 px-5 py-5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <MessageSquare size={14} className="text-primary" />
-                  <span className="text-xs font-extrabold uppercase tracking-wide text-muted">
-                    Follow-up questions
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {hasFollowup && (
-                    <button
-                      onClick={() => setShowFollowups((p) => !p)}
-                      className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-bold text-muted transition-colors hover:border-border-strong hover:text-ink"
-                    >
-                      {showFollowups ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                      {showFollowups ? "Hide" : "Show"}
-                    </button>
-                  )}
-                  {hasFollowup && (
-                    <button
-                      onClick={() => generateFollowup(true)}
-                      disabled={followupLoading}
-                      title="Regenerate follow-ups"
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-bold text-muted transition-colors hover:border-border-strong hover:text-ink disabled:opacity-50"
-                    >
-                      <RefreshCw size={11} className={followupLoading ? "animate-spin" : ""} />
-                      Regenerate
-                    </button>
-                  )}
-                  {!hasFollowup && !followupLoading && (
+            <div className="qp-followup-section">
+              <div className="qp-followup-header">
+                <span className="qp-followup-label">
+                  <MessageSquare size={13} /> Follow-up questions
+                </span>
+                <div className="qp-followup-actions">
+                  {hasFollowup ? (
+                    <>
+                      <button
+                        onClick={() => setShowFollowups((p) => !p)}
+                        className="qp-btn-ghost"
+                      >
+                        {showFollowups ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                        {showFollowups ? "Hide" : "Show"} ({(q.followup_md?.match(/###\s+F\d+/g) ?? []).length})
+                      </button>
+                      <button
+                        onClick={() => generateFollowup(true)}
+                        disabled={followupLoading}
+                        className="qp-btn-ghost"
+                      >
+                        <RefreshCw size={11} className={followupLoading ? "animate-spin" : ""} />
+                        Regenerate
+                      </button>
+                    </>
+                  ) : (
                     <button
                       onClick={() => generateFollowup(false)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-primary/10 px-4 py-1.5 text-xs font-bold text-primary transition-colors hover:bg-primary/20"
+                      disabled={followupLoading}
+                      className="qp-btn-followup"
                     >
-                      <Zap size={12} /> Generate follow-ups
+                      {followupLoading
+                        ? <><Loader2 size={12} className="animate-spin" /> Generating…</>
+                        : <><Zap size={12} /> Generate follow-ups</>
+                      }
                     </button>
-                  )}
-                  {followupLoading && (
-                    <span className="flex items-center gap-1.5 text-xs text-muted">
-                      <Loader2 size={12} className="animate-spin" /> Generating…
-                    </span>
                   )}
                 </div>
               </div>
-
-              {followupError && (
-                <p className="mt-2 text-xs font-semibold text-danger">{followupError}</p>
-              )}
-
+              {followupError && <p className="qp-error-inline">{followupError}</p>}
               {hasFollowup && showFollowups && !followupLoading && (
-                <div className="mt-4 animate-fade-in prose-qp">
+                <div className="qp-followup-content animate-fade-in prose-qp">
                   <MarkdownView variant="answer">
                     {(q.followup_md ?? "").replace(/^##\s+Follow-up questions\n?/im, "")}
                   </MarkdownView>
@@ -368,10 +331,8 @@ function QACard({
   );
 }
 
-// ── SessionCard ────────────────────────────────────────────────────────────
-function SessionCard({
-  session, onOpen, onDelete,
-}: {
+// ── Session card (list view) ───────────────────────────────────────────────
+function SessionCard({ session, onOpen, onDelete }: {
   session: Session; onOpen: (s: Session) => void; onDelete: (id: string) => void;
 }) {
   const [deleting, setDeleting] = useState(false);
@@ -387,34 +348,33 @@ function SessionCard({
   }
 
   return (
-    <div
-      onClick={() => onOpen(session)}
-      className="card card-hover flex cursor-pointer items-start gap-4 p-5"
-    >
-      <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${isResume ? "bg-yellow" : "bg-blue"}`}>
-        {isResume ? <User size={20} className="text-sidebar" /> : <Briefcase size={20} className="text-sidebar" />}
+    <div onClick={() => onOpen(session)} className={`qp-session-card qp-session-card--${session.type}`}>
+      <div className="qp-session-band" />
+      <div className={`qp-session-icon ${isResume ? "qp-session-icon--resume" : "qp-session-icon--jd"}`}>
+        {isResume ? <User size={18} /> : <Briefcase size={18} />}
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-extrabold text-ink">{session.title}</p>
-        <p className="mt-0.5 text-xs text-muted">
-          {isResume ? "Resume-based" : "JD-based"} · {count} question{count !== 1 ? "s" : ""}
+      <div className="qp-session-info">
+        <p className="qp-session-title">{session.title}</p>
+        <p className="qp-session-meta">
+          {isResume ? "Resume-based" : "JD-based"} · {count} Q{count !== 1 ? "s" : ""}
         </p>
-        <p className="mt-1 text-[11px] text-faint">Updated {formatDate(session.updated_at)}</p>
+        <p className="qp-session-date">Updated {formatDate(session.updated_at)}</p>
       </div>
+      <div className="qp-session-arrow">→</div>
       <button
         onClick={handleDelete}
         disabled={deleting}
-        title="Delete session"
-        className="mt-0.5 shrink-0 rounded-lg p-1.5 text-faint transition-colors hover:bg-danger/10 hover:text-danger disabled:opacity-40"
+        className="qp-session-delete"
+        title="Delete"
       >
-        {deleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+        {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
       </button>
     </div>
   );
 }
 
-// ── New JD form ────────────────────────────────────────────────────────────
-function NewJDForm({ onCreated }: { onCreated: (session: Session) => void }) {
+// ── New JD Form ────────────────────────────────────────────────────────────
+function NewJDForm({ onCreated, onCancel }: { onCreated: (s: Session) => void; onCancel: () => void }) {
   const [jdText, setJdText] = useState("");
   const [jdFileName, setJdFileName] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -425,24 +385,15 @@ function NewJDForm({ onCreated }: { onCreated: (session: Session) => void }) {
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setFileError(null);
-    setJdFileName(file.name);
-    try {
-      const text = await extractTextFromFile(file);
-      setJdText(text);
-    } catch (err) {
-      setFileError(err instanceof Error ? err.message : "Could not read file.");
-      setJdFileName(null);
-    }
+    setFileError(null); setJdFileName(file.name);
+    try { setJdText(await extractTextFromFile(file)); }
+    catch (err) { setFileError(err instanceof Error ? err.message : "Could not read file."); setJdFileName(null); }
     e.target.value = "";
   }
 
-  function clearFile() { setJdFileName(null); setJdText(""); setFileError(null); }
-
   async function handleCreate() {
-    if (!jdText.trim()) { setError("Please upload a JD file or paste the job description."); return; }
-    setLoading(true);
-    setError(null);
+    if (!jdText.trim()) { setError("Please upload a file or paste the job description."); return; }
+    setLoading(true); setError(null);
     const { ok, data, error: err } = await api({ action: "init", type: "jd", jdText });
     setLoading(false);
     if (!ok) { setError(err || "Could not create session."); return; }
@@ -450,70 +401,79 @@ function NewJDForm({ onCreated }: { onCreated: (session: Session) => void }) {
   }
 
   return (
-    <div className="card p-5 sm:p-6">
-      <h3 className="mb-4 font-extrabold text-ink">New JD session</h3>
-      <div className="mb-4 space-y-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={() => fileRef.current?.click()}
-            className="inline-flex items-center gap-2 rounded-xl border border-border bg-elevated px-4 py-2.5 text-sm font-bold text-ink transition-colors hover:border-border-strong"
-          >
-            <Upload size={15} /> Upload file
-          </button>
-          <span className="text-xs text-muted">PDF or TXT/MD (max 3 MB) — not .docx</span>
-          {jdFileName && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-3 py-1 text-xs font-bold text-success">
-              <FileText size={12} /> {jdFileName}
-              <button onClick={clearFile} className="ml-1 text-success/60 hover:text-danger">×</button>
-            </span>
-          )}
-          <input ref={fileRef} type="file" accept=".pdf,.md,.txt" className="hidden" onChange={handleFile} />
-        </div>
-
-        {fileError && (
-          <div className="flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-soft px-4 py-3 text-xs font-semibold text-danger">
-            <AlertCircle size={14} className="mt-0.5 shrink-0" /> {fileError}
-          </div>
-        )}
-
+    <div className="qp-jd-form">
+      <div className="qp-jd-form-header">
+        <Target size={18} className="qp-jd-form-icon" />
         <div>
-          <label className="mb-1.5 block text-xs font-semibold text-muted">Or paste the JD text</label>
-          <textarea
-            value={jdText}
-            onChange={(e) => setJdText(e.target.value)}
-            rows={7}
-            placeholder="Paste the full job description here…"
-            className="w-full resize-y rounded-xl border border-border bg-elevated px-4 py-3 text-sm leading-relaxed text-ink outline-none transition-colors focus:border-primary placeholder:text-muted"
-          />
-          {jdText && <p className="mt-1 text-right text-[11px] text-muted">{jdText.length.toLocaleString()} chars</p>}
+          <h3 className="qp-jd-form-title">New JD session</h3>
+          <p className="qp-jd-form-sub">Upload or paste the job description — we'll generate targeted questions.</p>
         </div>
+        <button onClick={onCancel} className="qp-btn-ghost ml-auto">✕</button>
       </div>
 
-      {error && (
-        <div className="mb-3 flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-soft px-4 py-3 text-sm font-semibold text-danger">
-          <AlertCircle size={15} className="mt-0.5 shrink-0" /> {error}
+      <div className="qp-jd-upload-row">
+        <button onClick={() => fileRef.current?.click()} className="qp-btn-upload">
+          <Upload size={14} /> Upload file
+        </button>
+        <span className="qp-jd-hint">PDF, TXT, or MD · max 3 MB</span>
+        {jdFileName && (
+          <span className="qp-jd-filename">
+            <FileText size={12} /> {jdFileName}
+            <button onClick={() => { setJdFileName(null); setJdText(""); }} className="qp-jd-clear">×</button>
+          </span>
+        )}
+        <input ref={fileRef} type="file" accept=".pdf,.md,.txt" className="hidden" onChange={handleFile} />
+      </div>
+
+      {fileError && (
+        <div className="qp-alert qp-alert--danger">
+          <AlertCircle size={13} /> {fileError}
         </div>
       )}
 
-      <button
-        onClick={handleCreate}
-        disabled={loading || !jdText.trim()}
-        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-primary to-[#ff8a5c] py-3.5 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-      >
-        {loading ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-        Create JD session
+      <div className="qp-jd-textarea-wrap">
+        <label className="qp-jd-label">Or paste the job description</label>
+        <textarea
+          value={jdText}
+          onChange={(e) => setJdText(e.target.value)}
+          rows={6}
+          placeholder="Paste the full JD here…"
+          className="qp-jd-textarea"
+        />
+        {jdText && <p className="qp-jd-charcount">{jdText.length.toLocaleString()} chars</p>}
+      </div>
+
+      {error && (
+        <div className="qp-alert qp-alert--danger">
+          <AlertCircle size={13} /> {error}
+        </div>
+      )}
+
+      <button onClick={handleCreate} disabled={loading || !jdText.trim()} className="qp-btn-primary">
+        {loading ? <><Loader2 size={15} className="animate-spin" /> Creating session…</> : <><Sparkles size={15} /> Create JD session</>}
       </button>
     </div>
   );
 }
 
+// ── Session progress bar ───────────────────────────────────────────────────
+function ProgressBar({ questions }: { questions: Question[] }) {
+  const total = questions.length;
+  const answered = questions.filter((q) => q.answer_md).length;
+  const pct = total === 0 ? 0 : Math.round((answered / total) * 100);
+  return (
+    <div className="qp-progress-wrap">
+      <div className="qp-progress-bar">
+        <div className="qp-progress-fill" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="qp-progress-label">{answered}/{total} answered</span>
+    </div>
+  );
+}
+
 // ── Session detail ─────────────────────────────────────────────────────────
-function SessionDetail({
-  session, onBack, onDeleted,
-}: {
-  session: Session;
-  onBack: () => void;
-  onDeleted: () => void;
+function SessionDetail({ session, onBack, onDeleted }: {
+  session: Session; onBack: () => void; onDeleted: () => void;
 }) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loadingQs, setLoadingQs] = useState(true);
@@ -529,108 +489,102 @@ function SessionDetail({
   }, [session.id]);
 
   useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
-
   useEffect(() => {
     if (!loadingQs && questions.length === 0) generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingQs]);
 
   async function generate() {
-    setGenerating(true);
-    setGenError(null);
+    setGenerating(true); setGenError(null);
     const existingQs = questions.map((q) => q.question);
-    const { ok, data, error } = await api({
-      action: "generate",
-      sessionId: session.id,
-      existingQuestions: existingQs,
-    });
+    const { ok, data, error } = await api({ action: "generate", sessionId: session.id, existingQuestions: existingQs });
     if (!ok) { setGenError(error || "Generation failed."); setGenerating(false); return; }
     const newQs = (data.questions as Question[]) ?? [];
     setQuestions((prev) => [...prev, ...newQs]);
     setJustAdded(newQs.length);
     setGenerating(false);
     setTimeout(() => {
-      document.getElementById("new-questions-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById("qp-new-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 100);
   }
 
-  function handleDeleteQ(id: string) {
-    setQuestions((prev) => prev.filter((q) => q.id !== id));
-  }
-
   async function handleDeleteSession() {
-    if (!confirm(`Delete "${session.title}" and all its questions? This cannot be undone.`)) return;
+    if (!confirm(`Delete "${session.title}" and all its questions? Cannot be undone.`)) return;
     await api({ action: "delete_session", sessionId: session.id });
     onDeleted();
   }
 
   const isResume = session.type === "resume";
+  const answeredCount = questions.filter((q) => q.answer_md).length;
 
   return (
     <div className="animate-fade-in">
-      <button
-        onClick={onBack}
-        className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-4 py-2 text-sm font-bold text-muted transition-colors hover:border-border-strong hover:text-ink"
-      >
-        <ArrowLeft size={14} /> All sessions
-      </button>
-
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${isResume ? "bg-yellow" : "bg-blue"}`}>
-            {isResume ? <User size={20} className="text-sidebar" /> : <Briefcase size={20} className="text-sidebar" />}
-          </div>
-          <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-ink">{session.title}</h1>
-            <p className="text-xs text-muted">
-              {isResume ? "Resume-based" : "JD-based"} · {questions.length} question{questions.length !== 1 ? "s" : ""}
-              {" · "}Updated {formatDate(session.updated_at)}
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={handleDeleteSession}
-          className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-2 text-xs font-bold text-danger transition-colors hover:bg-danger/10"
-        >
-          <Trash2 size={13} /> Delete session
+      {/* Top nav */}
+      <div className="qp-detail-nav">
+        <button onClick={onBack} className="qp-back-btn">
+          <ArrowLeft size={14} /> All sessions
+        </button>
+        <button onClick={handleDeleteSession} className="qp-delete-session-btn">
+          <Trash2 size={13} /> Delete
         </button>
       </div>
 
-      {/* Questions list */}
+      {/* Session header */}
+      <div className={`qp-detail-header qp-detail-header--${session.type}`}>
+        <div className={`qp-detail-header-icon ${isResume ? "qp-detail-header-icon--resume" : "qp-detail-header-icon--jd"}`}>
+          {isResume ? <User size={24} /> : <Briefcase size={24} />}
+        </div>
+        <div className="qp-detail-header-text">
+          <p className="qp-detail-type-label">{isResume ? "Resume session" : "JD session"}</p>
+          <h1 className="qp-detail-title">{session.title}</h1>
+          <div className="qp-detail-stats">
+            <span>{questions.length} questions</span>
+            <span className="qp-stat-dot">·</span>
+            <span>{answeredCount} answered</span>
+            <span className="qp-stat-dot">·</span>
+            <span>Updated {formatDate(session.updated_at)}</span>
+          </div>
+        </div>
+        {questions.length > 0 && (
+          <div className="qp-detail-header-progress">
+            <ProgressBar questions={questions} />
+          </div>
+        )}
+      </div>
+
+      {/* Questions */}
       {loadingQs ? (
-        <div className="space-y-3">
+        <div className="qp-skeleton-list">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="overflow-hidden rounded-2xl border border-border bg-surface">
-              <div className="flex items-start gap-4 px-5 py-4">
-                <div className="shimmer h-7 w-7 rounded-lg" />
-                <div className="flex-1 space-y-2">
-                  <div className="shimmer h-4 w-3/4 rounded" />
-                  <div className="shimmer h-3 w-1/2 rounded" />
-                </div>
+            <div key={i} className="qp-skeleton-qa">
+              <div className="shimmer qp-skeleton-num" />
+              <div className="qp-skeleton-text">
+                <div className="shimmer" style={{ height: 14, width: "70%", borderRadius: 4 }} />
+                <div className="shimmer" style={{ height: 12, width: "45%", borderRadius: 4 }} />
               </div>
             </div>
           ))}
         </div>
       ) : questions.length === 0 && !generating ? (
-        <div className="flex flex-col items-center gap-3 py-16 text-center">
-          <BookOpen size={32} className="text-faint" />
-          <p className="text-sm font-bold text-ink">No questions yet</p>
-          <p className="text-xs text-muted">Hit Generate to create the first batch.</p>
+        <div className="qp-empty">
+          <BookOpen size={32} className="qp-empty-icon" />
+          <p className="qp-empty-title">No questions yet</p>
+          <p className="qp-empty-sub">Hit Generate to create the first batch.</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="qp-qa-list">
           {questions.map((q, i) => {
             const isFirstNew = justAdded > 0 && i === questions.length - justAdded;
             return (
-              <div key={q.id} id={isFirstNew ? "new-questions-anchor" : undefined}>
-                {isFirstNew && justAdded > 0 && (
-                  <div className="mb-3 flex items-center gap-2">
-                    <div className="h-px flex-1 bg-primary/20" />
-                    <span className="text-xs font-bold text-primary">↓ {justAdded} new questions added</span>
-                    <div className="h-px flex-1 bg-primary/20" />
+              <div key={q.id} id={isFirstNew ? "qp-new-anchor" : undefined}>
+                {isFirstNew && (
+                  <div className="qp-new-divider">
+                    <div className="qp-new-divider-line" />
+                    <span className="qp-new-divider-label">↓ {justAdded} new questions</span>
+                    <div className="qp-new-divider-line" />
                   </div>
                 )}
-                <QACard q={q} index={i} onDelete={handleDeleteQ} />
+                <QACard q={q} index={i} onDelete={(id) => setQuestions((p) => p.filter((x) => x.id !== id))} />
               </div>
             );
           })}
@@ -639,47 +593,43 @@ function SessionDetail({
 
       {/* Generating skeletons */}
       {generating && (
-        <div className="mt-3 space-y-3">
-          {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="overflow-hidden rounded-2xl border border-border bg-surface">
-              <div className="flex items-start gap-4 px-5 py-4">
-                <div className="shimmer h-7 w-7 rounded-lg" />
-                <div className="flex-1 space-y-2">
-                  <div className="shimmer h-4 w-3/4 rounded" />
-                  <div className="shimmer h-3 w-1/2 rounded" />
+        <div className="qp-generating">
+          <div className="qp-skeleton-list">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="qp-skeleton-qa">
+                <div className="shimmer qp-skeleton-num" />
+                <div className="qp-skeleton-text">
+                  <div className="shimmer" style={{ height: 14, width: `${[70, 80, 60, 75, 65][i]}%`, borderRadius: 4 }} />
                 </div>
               </div>
-            </div>
-          ))}
-          <p className="py-2 text-center text-xs text-muted">
-            Generating 5 interview questions… tap any question to generate its answer on demand.
+            ))}
+          </div>
+          <p className="qp-generating-label">
+            <Loader2 size={12} className="animate-spin inline mr-1" />
+            Generating questions — tap any to get its answer instantly
           </p>
         </div>
       )}
 
       {genError && (
-        <div className="mt-4 flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-soft px-4 py-3 text-sm font-semibold text-danger">
-          <AlertCircle size={15} className="mt-0.5 shrink-0" /> {genError}
-          <button onClick={generate} className="ml-auto underline">Retry</button>
+        <div className="qp-alert qp-alert--danger mt-4">
+          <AlertCircle size={14} /> {genError}
+          <button onClick={generate} className="ml-auto underline text-xs">Retry</button>
         </div>
       )}
 
+      {/* Generate more CTA */}
       {!loadingQs && (
-        <div className="mt-6">
-          <button
-            onClick={generate}
-            disabled={generating}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-primary/40 py-4 text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5 disabled:opacity-50"
-          >
-            {generating ? (
-              <><Loader2 size={16} className="animate-spin" /> Generating more questions…</>
-            ) : (
-              <><Plus size={16} /> Generate 5 more questions</>
-            )}
+        <div className="qp-generate-more-wrap">
+          <button onClick={generate} disabled={generating} className="qp-generate-more-btn">
+            {generating
+              ? <><Loader2 size={15} className="animate-spin" /> Generating…</>
+              : <><Plus size={15} /> Generate 5 more questions</>
+            }
           </button>
           {!generating && questions.length > 0 && (
-            <p className="mt-2 text-center text-xs text-muted">
-              Tap any question to generate its answer on demand. New questions are added below — nothing is replaced.
+            <p className="qp-generate-more-hint">
+              New questions appended — nothing replaced.
             </p>
           )}
         </div>
@@ -688,7 +638,7 @@ function SessionDetail({
   );
 }
 
-// ── Root component ─────────────────────────────────────────────────────────
+// ── Root ───────────────────────────────────────────────────────────────────
 export function QuickPrepClient() {
   const [view, setView] = useState<"list" | "session">("list");
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -717,8 +667,6 @@ export function QuickPrepClient() {
     setView("session");
   }
 
-  function openSession(s: Session) { setActiveSession(s); setView("session"); }
-
   function handleJDCreated(session: Session) {
     setSessions((prev) => [session, ...prev]);
     setShowNewJD(false);
@@ -726,18 +674,12 @@ export function QuickPrepClient() {
     setView("session");
   }
 
-  function handleSessionDeleted(id: string) {
-    setSessions((prev) => prev.filter((s) => s.id !== id));
-    setView("list");
-    setActiveSession(null);
-  }
-
   if (view === "session" && activeSession) {
     return (
       <SessionDetail
         session={activeSession}
         onBack={() => { setView("list"); setActiveSession(null); loadSessions(); }}
-        onDeleted={() => handleSessionDeleted(activeSession.id)}
+        onDeleted={() => { setSessions((p) => p.filter((s) => s.id !== activeSession.id)); setView("list"); setActiveSession(null); }}
       />
     );
   }
@@ -747,72 +689,81 @@ export function QuickPrepClient() {
 
   return (
     <div className="animate-fade-in">
-      <div className="mb-6">
-        <h1 className="text-3xl font-extrabold tracking-tight">Quick Prepare</h1>
-        <p className="mt-1 text-sm text-muted">
-          Tap a question to generate its answer on demand — English + Hinglish, with follow-ups.
-        </p>
+      {/* Page header */}
+      <div className="qp-page-header">
+        <div className="qp-page-header-text">
+          <h1 className="qp-page-title">Quick Prepare</h1>
+          <p className="qp-page-sub">
+            Tap any question to generate its answer — English + Hinglish, with follow-ups.
+          </p>
+        </div>
+        <div className="qp-page-actions">
+          <button onClick={openResume} disabled={creatingResume} className="qp-btn-primary">
+            {creatingResume ? <Loader2 size={14} className="animate-spin" /> : <User size={14} />}
+            {resumeSession ? "Open Resume" : "Resume session"}
+          </button>
+          <button
+            onClick={() => setShowNewJD((p) => !p)}
+            className={`qp-btn-secondary ${showNewJD ? "qp-btn-secondary--active" : ""}`}
+          >
+            <Plus size={14} /> New JD session
+          </button>
+        </div>
       </div>
 
-      <div className="mb-6 flex flex-wrap gap-3">
-        <button
-          onClick={openResume}
-          disabled={creatingResume}
-          className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-primary to-[#ff8a5c] px-5 py-3 text-sm font-bold text-white shadow-[0_8px_20px_-8px_rgb(244_96_58_/_0.5)] transition-opacity hover:opacity-90 disabled:opacity-60"
-        >
-          {creatingResume ? <Loader2 size={15} className="animate-spin" /> : <User size={15} />}
-          {resumeSession ? "Open Resume session" : "Start Resume session"}
-        </button>
-        <button
-          onClick={() => setShowNewJD((p) => !p)}
-          className="inline-flex items-center gap-2 rounded-2xl border-2 border-primary/30 bg-surface px-5 py-3 text-sm font-bold text-primary transition-colors hover:border-primary hover:bg-primary/5"
-        >
-          <Plus size={15} /> New JD session
-        </button>
-      </div>
-
+      {/* JD form */}
       {showNewJD && (
         <div className="mb-6">
-          <NewJDForm onCreated={handleJDCreated} />
+          <NewJDForm onCreated={handleJDCreated} onCancel={() => setShowNewJD(false)} />
         </div>
       )}
 
+      {/* Sessions list */}
       {loadingSessions ? (
-        <div className="space-y-3">
+        <div className="qp-skeleton-list">
           {[0, 1].map((i) => (
-            <div key={i} className="card p-5">
-              <div className="flex items-center gap-4">
-                <div className="shimmer h-11 w-11 rounded-xl" />
-                <div className="flex-1 space-y-2">
-                  <div className="shimmer h-4 w-1/3 rounded" />
-                  <div className="shimmer h-3 w-1/4 rounded" />
-                </div>
+            <div key={i} className="qp-skeleton-qa" style={{ height: 80 }}>
+              <div className="shimmer" style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0 }} />
+              <div className="qp-skeleton-text">
+                <div className="shimmer" style={{ height: 14, width: "35%", borderRadius: 4 }} />
+                <div className="shimmer" style={{ height: 11, width: "22%", borderRadius: 4 }} />
               </div>
             </div>
           ))}
         </div>
       ) : sessions.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 py-20 text-center">
-          <Sparkles size={36} className="text-faint" />
-          <p className="text-sm font-bold text-ink">No sessions yet</p>
-          <p className="text-xs text-muted">Start a Resume session or create a JD session for your next interview.</p>
+        <div className="qp-empty qp-empty--page">
+          <div className="qp-empty-glyph">⚡</div>
+          <p className="qp-empty-title">Ready when you are</p>
+          <p className="qp-empty-sub">Start your Resume session or upload a JD for your next interview.</p>
+          <button onClick={openResume} disabled={creatingResume} className="qp-btn-primary">
+            {creatingResume ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            Start Resume session
+          </button>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="qp-sessions-list">
           {resumeSession && (
             <div>
-              <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-muted">Resume</p>
-              <SessionCard session={resumeSession} onOpen={openSession} onDelete={(id) => setSessions((p) => p.filter((s) => s.id !== id))} />
+              <p className="qp-list-label">Resume</p>
+              <SessionCard
+                session={resumeSession}
+                onOpen={(s) => { setActiveSession(s); setView("session"); }}
+                onDelete={(id) => setSessions((p) => p.filter((s) => s.id !== id))}
+              />
             </div>
           )}
           {jdSessions.length > 0 && (
             <div>
-              <p className="mb-2 mt-4 text-xs font-extrabold uppercase tracking-wide text-muted">
-                JD sessions ({jdSessions.length})
-              </p>
-              <div className="space-y-3">
+              <p className="qp-list-label" style={{ marginTop: "1.5rem" }}>JD sessions · {jdSessions.length}</p>
+              <div className="qp-sessions-grid">
                 {jdSessions.map((s) => (
-                  <SessionCard key={s.id} session={s} onOpen={openSession} onDelete={(id) => setSessions((p) => p.filter((x) => x.id !== id))} />
+                  <SessionCard
+                    key={s.id}
+                    session={s}
+                    onOpen={(s) => { setActiveSession(s); setView("session"); }}
+                    onDelete={(id) => setSessions((p) => p.filter((x) => x.id !== id))}
+                  />
                 ))}
               </div>
             </div>
@@ -820,16 +771,24 @@ export function QuickPrepClient() {
         </div>
       )}
 
-      {sessions.length > 0 && (
-        <div className="mt-8 rounded-2xl border border-border bg-elevated/60 px-5 py-4">
-          <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-muted">How it works</p>
-          <ul className="space-y-1.5 text-xs text-muted">
-            <li>· Questions are generated in batches of 5 — tap any question to generate its answer.</li>
-            <li>· Each answer includes English + Hinglish versions — switch with the tab at the top.</li>
-            <li>· After reading an answer, generate follow-up questions separately.</li>
-            <li>· Regenerate any answer or follow-up if you want a different take.</li>
-            <li>· Hit <strong className="text-ink">Generate 5 more</strong> for deeper coverage — never repeats old questions.</li>
-          </ul>
+      {/* How it works — only when sessions exist */}
+      {sessions.length > 0 && !showNewJD && (
+        <div className="qp-howto">
+          <p className="qp-howto-title">How it works</p>
+          <div className="qp-howto-items">
+            {[
+              ["Tap a question", "Expand any card to generate its answer on demand."],
+              ["English + Hinglish", "Switch tabs per question — same depth, different language."],
+              ["Follow-ups", "After an answer, generate 5 probing follow-up questions."],
+              ["Regenerate freely", "Not happy? Regenerate the answer or follow-ups anytime."],
+              ["Generate more", "5 more questions per batch — never repeats existing ones."],
+            ].map(([h, b]) => (
+              <div key={h} className="qp-howto-item">
+                <p className="qp-howto-h">{h}</p>
+                <p className="qp-howto-b">{b}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
