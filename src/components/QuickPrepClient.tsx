@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FileText, Briefcase, Sparkles, Loader2, ChevronDown, ChevronUp,
-  Upload, RotateCcw, AlertCircle, User, Trash2, Plus, ArrowLeft,
-  BookOpen,
+  Upload, AlertCircle, User, Trash2, Plus, ArrowLeft, BookOpen,
+  Zap, RefreshCw, MessageSquare, Globe, Languages,
 } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
 
@@ -23,7 +23,8 @@ interface Question {
   id: string;
   session_id: string;
   question: string;
-  answer_md: string;
+  answer_md: string | null;
+  answer_hi_md: string | null;
   followup_md: string | null;
   position: number;
 }
@@ -49,21 +50,17 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
-// ── PDF text extraction (client-side, text-layer PDFs only) ──────────────
+// ── PDF text extraction ────────────────────────────────────────────────────
 async function extractTextFromFile(file: File): Promise<string> {
-  if (file.size > 3 * 1024 * 1024) throw new Error("File is too large (max 3 MB). Please paste the text directly.");
-
+  if (file.size > 3 * 1024 * 1024)
+    throw new Error("File is too large (max 3 MB). Please paste the text directly.");
   const name = file.name.toLowerCase();
-  if (name.endsWith(".docx") || name.endsWith(".doc")) {
+  if (name.endsWith(".docx") || name.endsWith(".doc"))
     throw new Error(".doc/.docx files cannot be read directly. Please copy-paste the JD text below.");
-  }
-
   if (name.endsWith(".pdf")) {
     const buf = await file.arrayBuffer();
     const decoder = new TextDecoder("latin1");
     const raw = decoder.decode(new Uint8Array(buf));
-
-    // Try BT/ET text operator extraction (uncompressed streams)
     let text = "";
     const btRe = /BT([\s\S]*?)ET/g;
     const tjRe = /\(([^)]{2,})\)\s*Tj/g;
@@ -72,7 +69,6 @@ async function extractTextFromFile(file: File): Promise<string> {
       let tjM;
       while ((tjM = tjRe.exec(btM[1])) !== null) text += tjM[1] + " ";
     }
-    // Also try TJ array form: [(text) -100 (more) ...] TJ
     const tjArrRe = /\[([^\]]+)\]\s*TJ/g;
     const strRe = /\(([^)]{2,})\)/g;
     let arrM;
@@ -80,35 +76,99 @@ async function extractTextFromFile(file: File): Promise<string> {
       let strM;
       while ((strM = strRe.exec(arrM[1])) !== null) text += strM[1] + " ";
     }
-
     if (text.trim().length < 80) {
-      // Compressed PDF — fall back to long printable ASCII runs
       const runs = raw.match(/[\x20-\x7E]{15,}/g) ?? [];
       text = runs.filter((r) => /[a-zA-Z]{4,}/.test(r) && !/^[\d\s.]+$/.test(r)).join(" ");
     }
-
     const cleaned = text.replace(/\s+/g, " ").trim().slice(0, 25000);
-    if (cleaned.length < 50) {
+    if (cleaned.length < 50)
       throw new Error(
         "This PDF uses compressed/encoded streams and cannot be read in the browser. " +
         "Please paste the JD text directly into the text area below."
       );
-    }
     return cleaned;
   }
-
-  // .md / .txt — read as plain text
   return (await file.text()).slice(0, 25000);
 }
 
-// ── QACard ─────────────────────────────────────────────────────────────────
+// ── Markdown renderer for rich prose-qp answers ───────────────────────────
+function RichAnswer({ md, isHinglish = false }: { md: string; isHinglish?: boolean }) {
+  // Split out the "## ✅" interview section to give it a special green box
+  const interviewMarker = /^##\s+✅/m;
+  const matchPos = md.search(interviewMarker);
+
+  if (matchPos !== -1) {
+    const before = md.slice(0, matchPos);
+    const after = md.slice(matchPos).replace(/^##\s+✅[^\n]*\n?/, "");
+
+    return (
+      <div className={`prose-qp ${isHinglish ? "prose-qp-hi" : ""}`}>
+        <MarkdownView variant="answer">{before}</MarkdownView>
+        <div className="interview-box">
+          <div className="interview-box-label">✅ What to say in the interview</div>
+          <MarkdownView variant="answer">{after}</MarkdownView>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`prose-qp ${isHinglish ? "prose-qp-hi" : ""}`}>
+      <MarkdownView variant="answer">{md}</MarkdownView>
+    </div>
+  );
+}
+
+// ── QACard: lazy-loading per-question ────────────────────────────────────
 function QACard({
-  q, index, onDelete,
+  q: initialQ,
+  index,
+  onDelete,
 }: {
-  q: Question; index: number; onDelete: (id: string) => void;
+  q: Question;
+  index: number;
+  onDelete: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(index === 0);
+  const [q, setQ] = useState(initialQ);
+  const [open, setOpen] = useState(false);
+  const [lang, setLang] = useState<"en" | "hi">("en");
+  const [answerLoading, setAnswerLoading] = useState(false);
+  const [followupLoading, setFollowupLoading] = useState(false);
+  const [answerError, setAnswerError] = useState<string | null>(null);
+  const [followupError, setFollowupError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [showFollowups, setShowFollowups] = useState(false);
+
+  async function generateAnswer(regenerate = false) {
+    setAnswerLoading(true);
+    setAnswerError(null);
+    const { ok, data, error } = await api({
+      action: "generate_answer",
+      questionId: q.id,
+      regenerate,
+    });
+    setAnswerLoading(false);
+    if (!ok) { setAnswerError(error || "Generation failed. Try again."); return; }
+    setQ((prev) => ({
+      ...prev,
+      answer_md: data.answer_md as string,
+      answer_hi_md: data.answer_hi_md as string,
+    }));
+  }
+
+  async function generateFollowup(regenerate = false) {
+    setFollowupLoading(true);
+    setFollowupError(null);
+    const { ok, data, error } = await api({
+      action: "generate_followup",
+      questionId: q.id,
+      regenerate,
+    });
+    setFollowupLoading(false);
+    if (!ok) { setFollowupError(error || "Generation failed. Try again."); return; }
+    setQ((prev) => ({ ...prev, followup_md: data.followup_md as string }));
+    setShowFollowups(true);
+  }
 
   async function handleDelete() {
     if (!confirm("Remove this question?")) return;
@@ -117,9 +177,12 @@ function QACard({
     onDelete(q.id);
   }
 
+  const hasAnswer = Boolean(q.answer_md);
+  const hasFollowup = Boolean(q.followup_md);
+
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-surface">
-      {/* Header row */}
+      {/* Header */}
       <div className="flex items-start gap-3 px-5 py-4">
         <button
           onClick={() => setOpen((p) => !p)}
@@ -133,6 +196,14 @@ function QACard({
             {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
           </span>
         </button>
+
+        {/* Status badge */}
+        {hasAnswer && !open && (
+          <span className="mt-1 shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-bold text-success">
+            Answered
+          </span>
+        )}
+
         <button
           onClick={handleDelete}
           disabled={deleting}
@@ -143,18 +214,152 @@ function QACard({
         </button>
       </div>
 
-      {/* Body */}
+      {/* Body — expands on click */}
       {open && (
         <div className="border-t border-border">
+          {/* ── Answer section ── */}
           <div className="px-5 py-5">
-            <MarkdownView variant="answer">{q.answer_md}</MarkdownView>
-          </div>
-          {q.followup_md && (
-            <div className="border-t border-border bg-elevated/60 px-5 py-5">
-              <div className="mb-3 inline-flex items-center rounded-full bg-purple px-3 py-1 text-[11px] font-extrabold uppercase tracking-wide text-sidebar">
-                Likely follow-up questions
+            {!hasAnswer && !answerLoading && (
+              <div className="flex flex-col items-center gap-3 py-6 text-center">
+                <Zap size={24} className="text-primary/60" />
+                <p className="text-xs text-muted">Tap to generate a detailed answer with full explanation</p>
+                <button
+                  onClick={() => generateAnswer(false)}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-primary to-[#ff8a5c] px-6 py-2.5 text-sm font-bold text-white shadow-[0_6px_18px_-6px_rgb(244_96_58_/_0.5)] transition-opacity hover:opacity-90"
+                >
+                  <Zap size={15} /> Generate answer
+                </button>
+                {answerError && (
+                  <p className="text-xs font-semibold text-danger">{answerError}</p>
+                )}
               </div>
-              <MarkdownView variant="answer">{q.followup_md}</MarkdownView>
+            )}
+
+            {answerLoading && (
+              <div className="space-y-3 py-4">
+                <div className="flex items-center gap-2 text-xs text-muted">
+                  <Loader2 size={14} className="animate-spin text-primary" />
+                  Generating detailed answer in English + Hinglish simultaneously…
+                </div>
+                {[80, 65, 90, 55, 75].map((w, i) => (
+                  <div key={i} className="shimmer h-3 rounded" style={{ width: `${w}%` }} />
+                ))}
+              </div>
+            )}
+
+            {hasAnswer && !answerLoading && (
+              <>
+                {/* Language tabs */}
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div className="flex rounded-xl border border-border bg-elevated p-0.5">
+                    <button
+                      onClick={() => setLang("en")}
+                      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                        lang === "en"
+                          ? "bg-surface text-ink shadow-sm"
+                          : "text-muted hover:text-ink"
+                      }`}
+                    >
+                      <Globe size={12} /> English
+                    </button>
+                    <button
+                      onClick={() => setLang("hi")}
+                      className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                        lang === "hi"
+                          ? "bg-surface text-ink shadow-sm"
+                          : "text-muted hover:text-ink"
+                      }`}
+                    >
+                      <Languages size={12} /> Hinglish
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => generateAnswer(true)}
+                    title="Regenerate answer"
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-bold text-muted transition-colors hover:border-border-strong hover:text-ink"
+                  >
+                    <RefreshCw size={11} /> Regenerate
+                  </button>
+                </div>
+
+                {/* Answer content */}
+                <div className="animate-fade-in">
+                  {lang === "en" && q.answer_md && (
+                    <RichAnswer md={q.answer_md} isHinglish={false} />
+                  )}
+                  {lang === "hi" && (
+                    q.answer_hi_md
+                      ? <RichAnswer md={q.answer_hi_md} isHinglish={true} />
+                      : <p className="py-4 text-center text-sm text-muted">Hinglish version not available. Try regenerating.</p>
+                  )}
+                </div>
+
+                {answerError && (
+                  <p className="mt-3 text-xs font-semibold text-danger">{answerError}</p>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* ── Follow-up section ── */}
+          {hasAnswer && (
+            <div className="border-t border-border bg-elevated/40 px-5 py-5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <MessageSquare size={14} className="text-primary" />
+                  <span className="text-xs font-extrabold uppercase tracking-wide text-muted">
+                    Follow-up questions
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {hasFollowup && (
+                    <button
+                      onClick={() => setShowFollowups((p) => !p)}
+                      className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-bold text-muted transition-colors hover:border-border-strong hover:text-ink"
+                    >
+                      {showFollowups ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                      {showFollowups ? "Hide" : "Show"}
+                    </button>
+                  )}
+                  {hasFollowup && (
+                    <button
+                      onClick={() => generateFollowup(true)}
+                      disabled={followupLoading}
+                      title="Regenerate follow-ups"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-bold text-muted transition-colors hover:border-border-strong hover:text-ink disabled:opacity-50"
+                    >
+                      <RefreshCw size={11} className={followupLoading ? "animate-spin" : ""} />
+                      Regenerate
+                    </button>
+                  )}
+                  {!hasFollowup && !followupLoading && (
+                    <button
+                      onClick={() => generateFollowup(false)}
+                      className="inline-flex items-center gap-2 rounded-xl bg-primary/10 px-4 py-1.5 text-xs font-bold text-primary transition-colors hover:bg-primary/20"
+                    >
+                      <Zap size={12} /> Generate follow-ups
+                    </button>
+                  )}
+                  {followupLoading && (
+                    <span className="flex items-center gap-1.5 text-xs text-muted">
+                      <Loader2 size={12} className="animate-spin" /> Generating…
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {followupError && (
+                <p className="mt-2 text-xs font-semibold text-danger">{followupError}</p>
+              )}
+
+              {hasFollowup && showFollowups && !followupLoading && (
+                <div className="mt-4 animate-fade-in prose-qp">
+                  <MarkdownView variant="answer">
+                    {(q.followup_md ?? "").replace(/^##\s+Follow-up questions\n?/im, "")}
+                  </MarkdownView>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -163,7 +368,7 @@ function QACard({
   );
 }
 
-// ── SessionCard (on the sessions list) ─────────────────────────────────────
+// ── SessionCard ────────────────────────────────────────────────────────────
 function SessionCard({
   session, onOpen, onDelete,
 }: {
@@ -186,11 +391,7 @@ function SessionCard({
       onClick={() => onOpen(session)}
       className="card card-hover flex cursor-pointer items-start gap-4 p-5"
     >
-      <div
-        className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${
-          isResume ? "bg-yellow" : "bg-blue"
-        }`}
-      >
+      <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${isResume ? "bg-yellow" : "bg-blue"}`}>
         {isResume ? <User size={20} className="text-sidebar" /> : <Briefcase size={20} className="text-sidebar" />}
       </div>
       <div className="min-w-0 flex-1">
@@ -236,11 +437,7 @@ function NewJDForm({ onCreated }: { onCreated: (session: Session) => void }) {
     e.target.value = "";
   }
 
-  function clearFile() {
-    setJdFileName(null);
-    setJdText("");
-    setFileError(null);
-  }
+  function clearFile() { setJdFileName(null); setJdText(""); setFileError(null); }
 
   async function handleCreate() {
     if (!jdText.trim()) { setError("Please upload a JD file or paste the job description."); return; }
@@ -255,7 +452,6 @@ function NewJDForm({ onCreated }: { onCreated: (session: Session) => void }) {
   return (
     <div className="card p-5 sm:p-6">
       <h3 className="mb-4 font-extrabold text-ink">New JD session</h3>
-
       <div className="mb-4 space-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <button
@@ -289,9 +485,7 @@ function NewJDForm({ onCreated }: { onCreated: (session: Session) => void }) {
             placeholder="Paste the full job description here…"
             className="w-full resize-y rounded-xl border border-border bg-elevated px-4 py-3 text-sm leading-relaxed text-ink outline-none transition-colors focus:border-primary placeholder:text-muted"
           />
-          {jdText && (
-            <p className="mt-1 text-right text-[11px] text-muted">{jdText.length.toLocaleString()} chars</p>
-          )}
+          {jdText && <p className="mt-1 text-right text-[11px] text-muted">{jdText.length.toLocaleString()} chars</p>}
         </div>
       </div>
 
@@ -313,7 +507,7 @@ function NewJDForm({ onCreated }: { onCreated: (session: Session) => void }) {
   );
 }
 
-// ── Session detail view ────────────────────────────────────────────────────
+// ── Session detail ─────────────────────────────────────────────────────────
 function SessionDetail({
   session, onBack, onDeleted,
 }: {
@@ -336,7 +530,6 @@ function SessionDetail({
 
   useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
 
-  // Auto-generate first batch if session has no questions yet
   useEffect(() => {
     if (!loadingQs && questions.length === 0) generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -351,16 +544,11 @@ function SessionDetail({
       sessionId: session.id,
       existingQuestions: existingQs,
     });
-    if (!ok) {
-      setGenError(error || "Generation failed.");
-      setGenerating(false);
-      return;
-    }
+    if (!ok) { setGenError(error || "Generation failed."); setGenerating(false); return; }
     const newQs = (data.questions as Question[]) ?? [];
     setQuestions((prev) => [...prev, ...newQs]);
     setJustAdded(newQs.length);
     setGenerating(false);
-    // Scroll to newly added questions after a tick
     setTimeout(() => {
       document.getElementById("new-questions-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 100);
@@ -380,7 +568,6 @@ function SessionDetail({
 
   return (
     <div className="animate-fade-in">
-      {/* Back nav */}
       <button
         onClick={onBack}
         className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-4 py-2 text-sm font-bold text-muted transition-colors hover:border-border-strong hover:text-ink"
@@ -388,7 +575,6 @@ function SessionDetail({
         <ArrowLeft size={14} /> All sessions
       </button>
 
-      {/* Session header */}
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${isResume ? "bg-yellow" : "bg-blue"}`}>
@@ -434,7 +620,6 @@ function SessionDetail({
       ) : (
         <div className="space-y-3">
           {questions.map((q, i) => {
-            // Anchor for smooth-scroll to newly added questions
             const isFirstNew = justAdded > 0 && i === questions.length - justAdded;
             return (
               <div key={q.id} id={isFirstNew ? "new-questions-anchor" : undefined}>
@@ -452,7 +637,7 @@ function SessionDetail({
         </div>
       )}
 
-      {/* Generating skeleton */}
+      {/* Generating skeletons */}
       {generating && (
         <div className="mt-3 space-y-3">
           {[0, 1, 2, 3, 4].map((i) => (
@@ -467,12 +652,11 @@ function SessionDetail({
             </div>
           ))}
           <p className="py-2 text-center text-xs text-muted">
-            Generating 5 deep questions with model answers + follow-ups…
+            Generating 5 interview questions… tap any question to generate its answer on demand.
           </p>
         </div>
       )}
 
-      {/* Error */}
       {genError && (
         <div className="mt-4 flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-soft px-4 py-3 text-sm font-semibold text-danger">
           <AlertCircle size={15} className="mt-0.5 shrink-0" /> {genError}
@@ -480,7 +664,6 @@ function SessionDetail({
         </div>
       )}
 
-      {/* Generate more */}
       {!loadingQs && (
         <div className="mt-6">
           <button
@@ -496,7 +679,7 @@ function SessionDetail({
           </button>
           {!generating && questions.length > 0 && (
             <p className="mt-2 text-center text-xs text-muted">
-              New questions are added below existing ones — nothing is replaced.
+              Tap any question to generate its answer on demand. New questions are added below — nothing is replaced.
             </p>
           )}
         </div>
@@ -529,18 +712,12 @@ export function QuickPrepClient() {
     setCreatingResume(false);
     if (!ok) return;
     const session = data.session as Session;
-    setSessions((prev) => {
-      const exists = prev.find((s) => s.id === session.id);
-      return exists ? prev : [session, ...prev];
-    });
+    setSessions((prev) => prev.find((s) => s.id === session.id) ? prev : [session, ...prev]);
     setActiveSession(session);
     setView("session");
   }
 
-  function openSession(s: Session) {
-    setActiveSession(s);
-    setView("session");
-  }
+  function openSession(s: Session) { setActiveSession(s); setView("session"); }
 
   function handleJDCreated(session: Session) {
     setSessions((prev) => [session, ...prev]);
@@ -555,10 +732,6 @@ export function QuickPrepClient() {
     setActiveSession(null);
   }
 
-  function handleDeleteFromList(id: string) {
-    setSessions((prev) => prev.filter((s) => s.id !== id));
-  }
-
   if (view === "session" && activeSession) {
     return (
       <SessionDetail
@@ -569,21 +742,18 @@ export function QuickPrepClient() {
     );
   }
 
-  // ── Sessions list ──────────────────────────────────────────────────────
   const resumeSession = sessions.find((s) => s.type === "resume");
   const jdSessions = sessions.filter((s) => s.type === "jd");
 
   return (
     <div className="animate-fade-in">
-      {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-extrabold tracking-tight">Quick Prepare</h1>
         <p className="mt-1 text-sm text-muted">
-          Tailored interview Q&amp;A with model answers and follow-ups — saved by session.
+          Tap a question to generate its answer on demand — English + Hinglish, with follow-ups.
         </p>
       </div>
 
-      {/* Action buttons */}
       <div className="mb-6 flex flex-wrap gap-3">
         <button
           onClick={openResume}
@@ -601,14 +771,12 @@ export function QuickPrepClient() {
         </button>
       </div>
 
-      {/* New JD form */}
       {showNewJD && (
         <div className="mb-6">
           <NewJDForm onCreated={handleJDCreated} />
         </div>
       )}
 
-      {/* Sessions */}
       {loadingSessions ? (
         <div className="space-y-3">
           {[0, 1].map((i) => (
@@ -627,21 +795,14 @@ export function QuickPrepClient() {
         <div className="flex flex-col items-center gap-3 py-20 text-center">
           <Sparkles size={36} className="text-faint" />
           <p className="text-sm font-bold text-ink">No sessions yet</p>
-          <p className="text-xs text-muted">
-            Start a Resume session or create a JD session for your next interview.
-          </p>
+          <p className="text-xs text-muted">Start a Resume session or create a JD session for your next interview.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Resume session always first if it exists */}
           {resumeSession && (
             <div>
               <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-muted">Resume</p>
-              <SessionCard
-                session={resumeSession}
-                onOpen={openSession}
-                onDelete={handleDeleteFromList}
-              />
+              <SessionCard session={resumeSession} onOpen={openSession} onDelete={(id) => setSessions((p) => p.filter((s) => s.id !== id))} />
             </div>
           )}
           {jdSessions.length > 0 && (
@@ -651,7 +812,7 @@ export function QuickPrepClient() {
               </p>
               <div className="space-y-3">
                 {jdSessions.map((s) => (
-                  <SessionCard key={s.id} session={s} onOpen={openSession} onDelete={handleDeleteFromList} />
+                  <SessionCard key={s.id} session={s} onOpen={openSession} onDelete={(id) => setSessions((p) => p.filter((x) => x.id !== id))} />
                 ))}
               </div>
             </div>
@@ -659,15 +820,15 @@ export function QuickPrepClient() {
         </div>
       )}
 
-      {/* Tips */}
       {sessions.length > 0 && (
         <div className="mt-8 rounded-2xl border border-border bg-elevated/60 px-5 py-4">
           <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-muted">How it works</p>
           <ul className="space-y-1.5 text-xs text-muted">
-            <li>· Each session generates 5 deep questions with model answers + follow-ups.</li>
-            <li>· Hit <strong className="text-ink">Generate 5 more</strong> inside a session — new questions never repeat old ones.</li>
-            <li>· Delete any question you already know well to keep the list focused.</li>
-            <li>· JD sessions are stored permanently — open them the morning of your interview.</li>
+            <li>· Questions are generated in batches of 5 — tap any question to generate its answer.</li>
+            <li>· Each answer includes English + Hinglish versions — switch with the tab at the top.</li>
+            <li>· After reading an answer, generate follow-up questions separately.</li>
+            <li>· Regenerate any answer or follow-up if you want a different take.</li>
+            <li>· Hit <strong className="text-ink">Generate 5 more</strong> for deeper coverage — never repeats old questions.</li>
           </ul>
         </div>
       )}

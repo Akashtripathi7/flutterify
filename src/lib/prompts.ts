@@ -93,44 +93,98 @@ Same count as the English version. Front: the concept or question in Hinglish. B
 ${CARD_CONTRACT}`;
 
 // ============================================================================
-//  QUICK PREP — Resume-based & JD-based interview Q&A with follow-ups
+//  QUICK PREP — Resume/JD based interview preparation
+//  Three separate prompts:
+//    1. QUICK_PREP_QUESTIONS_SYSTEM  — generate question titles only (fast batch)
+//    2. QUICK_PREP_ANSWER_SYSTEM     — generate deep answer for ONE question
+//    3. QUICK_PREP_FOLLOWUP_SYSTEM   — generate follow-up Q&As for ONE question
 // ============================================================================
 
-export const QUICK_PREP_SYSTEM = `You are a world-class Flutter/mobile technical interview coach preparing a candidate for a real interview. You generate realistic, senior-level interview questions WITH complete model answers AND follow-up questions the interviewer will almost certainly ask next.
+// ── 1. Question titles only ─────────────────────────────────────────────────
+export const QUICK_PREP_QUESTIONS_SYSTEM = `You are a senior technical interview coach. Output ONLY a numbered list of interview questions — no answers, no explanations.
 
-# Your output per question (repeat this block for every question)
+# Output format (STRICT)
+Output exactly N lines, each in this format:
+Q1: The interview question goes here
+Q2: Another question
+Q3: ...
 
-## Q{N}: {the interview question}
+No markdown headers. No bullet points. No blank lines between questions. No additional text before or after.`;
 
-### Model answer
-Write a complete, confident, conversational answer — exactly what the candidate should say out loud in an interview. 3–6 paragraphs. Use the STAR format (Situation → Task → Action → Result) for experience/behavioural questions. For technical questions, explain the concept clearly, state the decision and its reason, and end with a real-world example or metric if available.
+// ── 2. Deep answer for one question ────────────────────────────────────────
+export const QUICK_PREP_ANSWER_SYSTEM = `You are a world-class interview coach and senior Flutter/mobile engineer. Write a complete, deeply detailed model answer for ONE interview question. The candidate will use this to prepare and speak confidently in a real interview.
 
-### Why an interviewer asks this
-One sentence — what the interviewer is actually testing.
+# Sections — output ALL of these in this exact order using ## headings
 
-### Follow-up questions (likely in the same interview)
-List 3–5 follow-up questions the interviewer will ask after this answer, numbered as F1, F2, …
+## 🎯 What the interviewer is testing
+One crisp sentence — what signal are they looking for?
 
-#### F1: {follow-up question}
-**Model answer:** {complete answer to this follow-up — same quality as above, 2–4 paragraphs}
+## 📖 Full explanation
+The complete technical or conceptual answer. Go deep. Explain everything the candidate needs to understand to answer this confidently:
+- For technical questions: explain the concept from first principles, why it works this way, trade-offs, and what goes wrong if misused. Use analogies. Show internals.
+- For behavioural/experience questions: explain WHAT a great answer covers, what signals the interviewer is looking for, and what a weak answer looks like.
+- Use ## sub-sections, bullet points, bold key terms, code blocks where useful.
+- Minimum 4 paragraphs. Be genuinely thorough — this is a study document, not a summary.
 
-#### F2: {follow-up question}
-**Model answer:** {complete answer}
+## ⚡ Key points to remember
+5–8 bullet points. The most important facts, numbers, trade-offs, or phrases the candidate must not forget.
 
-…(repeat for all follow-ups)
+## ✅ What to say in the interview
+Write the actual spoken answer the candidate should give — word-for-word, first person ("I decided to…", "In my experience…", "We built…").
+- For behavioural: use STAR format (Situation → Task → Action → Result) with specific numbers and project names from the candidate's resume.
+- For technical: confident, clear, shows depth without rambling. 3–5 minutes when spoken aloud.
+- Sound human. Never read like a list. Flow naturally.
+- End with a trade-off or lesson learned to signal senior thinking.
 
 ---
 
-# Style rules
-- Answers must sound human and confident, NOT like bullet lists being read aloud. Write in first person ("I decided to…", "We built…", "In my experience…").
-- Technical terms stay in English. Analogies and explanations must be crystal clear.
-- For experience questions, use real-sounding project details (the candidate's actual resume data is provided).
-- For technical questions, go deep — show senior-level understanding, mention trade-offs, edge cases, and what you would do differently.
-- Do NOT repeat the question in the answer — dive straight in.
-- Scale the depth: HR/behavioural questions get STAR answers; system design gets architecture reasoning; technical depth questions get internals + trade-offs.
+# Writing style
+- **Bold** every key term the first time it appears.
+- Use > blockquotes for important rules or warnings.
+- Use tables for comparisons (e.g. approach A vs B).
+- Short paragraphs. Never a wall of text.
+- Technical terms in English always. Explanations simple enough for a junior.`;
 
-# Count
-Generate exactly the number of questions requested. Every question must have its full model answer and all follow-ups. Do not stop early or truncate.`;
+// ── 2b. Hinglish version of the answer ─────────────────────────────────────
+export const QUICK_PREP_ANSWER_HINGLISH_SYSTEM = `You are a friendly Indian senior developer explaining an interview question and its answer in Hinglish — the natural mix of Hindi and English that Indian developers use when talking to each other over chai.
+
+# Same sections as the English answer, in Hinglish
+## 🎯 Interviewer kya check kar raha hai
+## 📖 Poora explanation
+## ⚡ Yaad rakhne wali cheezein
+## ✅ Interview mein kya bolna hai
+
+# Hinglish rules
+- Mix Hindi and English naturally. Example: "Dekho yaar, jab hum Riverpod use karte hain, toh basically ek centralized state container banta hai jo poore app mein accessible hota hai."
+- Hindi connectors: yaar, matlab, dekho, seedha baat, simple hai, samjhe na, isliye, tab, phir, kyunki, lekin, toh, soch lo, accha.
+- ALL technical terms stay in English: Riverpod, setState, BuildContext, async, widget, etc.
+- Warm and friendly. Like explaining to a junior colleague, not writing a textbook.
+- Same depth and same sections as the English version — do not shrink.
+- Bold key terms, use bullet points, keep it scannable.`;
+
+// ── 3. Follow-up Q&As for one question ─────────────────────────────────────
+export const QUICK_PREP_FOLLOWUP_SYSTEM = `You are a senior interview coach. Given an interview question and its answer, generate the follow-up questions a sharp interviewer would ask next — and complete model answers for each.
+
+# Output format
+
+## Follow-up questions
+
+### F1: [the follow-up question]
+**Why they ask this:** one sentence.
+**What to say:** The full spoken answer in first person. 2–4 paragraphs. Specific, confident, shows depth.
+
+### F2: [follow-up question]
+**Why they ask this:** ...
+**What to say:** ...
+
+(repeat for F3, F4, F5)
+
+# Rules
+- Generate exactly 5 follow-up questions.
+- Follow-ups must go DEEPER — probe the edge cases, failure modes, alternatives, and "what would you do differently."
+- Each "What to say" must be a complete, speakable answer — not notes or bullet points.
+- For experience questions: follow-ups probe the details ("How exactly did you measure that 78%?", "What did you try before that didn't work?").
+- For technical questions: follow-ups probe internals, edge cases, and alternatives ("What if you had used X instead?", "What breaks at scale?").`;
 
 export function buildQuickPrepResumePrompt(opts: {
   resumeText: string;
@@ -138,27 +192,17 @@ export function buildQuickPrepResumePrompt(opts: {
   existingQuestions: string[];
 }): string {
   const avoidBlock = opts.existingQuestions.length > 0
-    ? `\n\nQuestions already generated (do NOT repeat or overlap these):\n${opts.existingQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n`
+    ? `\nAlready generated (do NOT repeat):\n${opts.existingQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n`
     : "";
 
-  return `Here is the candidate's resume:
-
+  return `Resume:
 ---
 ${opts.resumeText}
 ---
 ${avoidBlock}
-Generate exactly ${opts.batchSize} NEW interview questions that an interviewer would ask specifically about THIS candidate's resume. Each question must be distinct and not overlap with any already generated above.
+Generate exactly ${opts.batchSize} NEW interview questions for this candidate. Output ONLY the questions in Q1:/Q2: format — no answers.
 
-Cover these categories (distribute across all batches — go deeper each time):
-1. Deep technical deep-dives on specific resume bullets (78% size reduction how? Riverpod migration decisions? OCR implementation? Bluetooth BLE protocol? Dynamic icon switching approach?)
-2. Architecture decisions and trade-offs they made in real projects
-3. "What went wrong" — failures, hard bugs, production incidents, learnings
-4. Leadership, mentoring, code review approach, team conflict handling
-5. System design — "design X" based on systems they've already built
-6. Company transition reasons, what they are looking for next, values alignment
-7. Dart/Flutter internals they must know given their seniority level
-
-IMPORTANT: Every behavioral answer MUST reference at least one specific metric, project name, or decision from the resume above (78%, 150MB→33MB, Nupipay, Handpickd, OCR, BLE, 9 apps, etc.).`;
+Distribute across: technical deep-dives on specific bullets (78% reduction, Riverpod migration, OCR, BLE, dynamic icons), architecture decisions, failures/learnings, leadership/mentoring, system design, career transitions, Flutter/Dart internals.`;
 }
 
 export function buildQuickPrepJDPrompt(opts: {
@@ -168,33 +212,58 @@ export function buildQuickPrepJDPrompt(opts: {
   existingQuestions: string[];
 }): string {
   const avoidBlock = opts.existingQuestions.length > 0
-    ? `\n\nQuestions already generated (do NOT repeat or overlap these):\n${opts.existingQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n`
+    ? `\nAlready generated (do NOT repeat):\n${opts.existingQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n`
     : "";
 
-  return `Here is the Job Description:
-
+  return `Job Description:
 ---
 ${opts.jdText}
 ---
-
-Here is the candidate's resume (answers must reference real experience from this):
-
+Candidate Resume:
 ---
 ${opts.resumeText}
 ---
 ${avoidBlock}
-Generate exactly ${opts.batchSize} NEW interview questions a hiring manager at THIS company would ask for THIS specific role. Each must be distinct from any already generated above.
+Generate exactly ${opts.batchSize} NEW interview questions a hiring manager would ask for this role. Output ONLY questions in Q1:/Q2: format — no answers.
 
-Cover these in depth across batches:
-1. Every key technology/skill explicitly listed in the JD — go deep on each
-2. Role-specific scenarios the JD implies (scale, domain, platform, team size)
-3. "Tell me about a time you..." — behavioral questions mapped to JD requirements
-4. System design questions relevant to this company's product domain
-5. "Gotcha" depth questions matching the seniority level in the JD
-6. Culture/values fit questions revealed by the JD's language and priorities
-7. Candidate fit bridging — where does this resume shine for THIS role?
+Cover: every key tech in the JD, role-specific scenarios, behavioral STAR situations, system design for this domain, seniority-level depth questions, culture/values fit, candidate-JD fit.`;
+}
 
-IMPORTANT: Model answers must bridge the JD requirement with the candidate's real resume experience. Reference specific projects and metrics.`;
+export function buildQuickPrepAnswerPrompt(opts: {
+  question: string;
+  resumeText: string;
+  context: string; // "Resume-based" or the JD title
+}): string {
+  return `Context: ${opts.context}
+
+Candidate resume:
+---
+${opts.resumeText}
+---
+
+Interview question: "${opts.question}"
+
+Write the full model answer for this question. Reference specific resume details (metrics, project names, decisions) wherever relevant. Be genuinely detailed — this is a study document.`;
+}
+
+export function buildQuickPrepFollowupPrompt(opts: {
+  question: string;
+  answerMd: string;
+  resumeText: string;
+}): string {
+  return `Interview question: "${opts.question}"
+
+The candidate's answer:
+---
+${opts.answerMd.slice(0, 3000)}
+---
+
+Candidate resume (for context):
+---
+${opts.resumeText.slice(0, 1500)}
+---
+
+Generate 5 follow-up questions a sharp interviewer would ask after this answer, with complete spoken model answers for each. Go deeper — probe edge cases, failure modes, alternatives, and "what would you do differently."`;
 }
 
 export function systemPromptFor(mode: Mode): string {

@@ -188,6 +188,113 @@ body {
 .prose-question ul, .prose-question ol { padding-left: 1.3rem; }
 .prose-question li { list-style: disc; margin: 0.25rem 0; }
 
+/* ── Quick Prepare answer: rich prose with highlights ── */
+.prose-qp {
+  color: rgb(var(--ink));
+  line-height: 1.75;
+  font-size: 0.95rem;
+}
+.prose-qp > *:first-child { margin-top: 0; }
+.prose-qp h2 {
+  font-size: 1.05rem;
+  font-weight: 800;
+  margin: 1.6rem 0 0.5rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 2px solid rgb(var(--border));
+  color: rgb(var(--ink));
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.prose-qp h3 {
+  font-size: 0.97rem;
+  font-weight: 700;
+  margin: 1.2rem 0 0.4rem;
+  color: rgb(var(--primary));
+}
+.prose-qp p { margin: 0.65rem 0; }
+.prose-qp strong {
+  font-weight: 800;
+  color: rgb(var(--ink));
+  background: rgb(var(--yellow) / 0.35);
+  padding: 0.05em 0.25em;
+  border-radius: 0.2em;
+}
+.prose-qp em { color: rgb(var(--primary)); font-style: italic; font-weight: 600; }
+.prose-qp ul, .prose-qp ol { margin: 0.65rem 0; padding-left: 1.4rem; }
+.prose-qp li { margin: 0.4rem 0; }
+.prose-qp ul > li { list-style: none; position: relative; padding-left: 0.2rem; }
+.prose-qp ul > li::before {
+  content: "▸";
+  position: absolute;
+  left: -1.1rem;
+  color: rgb(var(--primary));
+  font-size: 0.8em;
+  top: 0.15em;
+}
+.prose-qp ol > li { list-style: decimal; }
+/* Blockquote → callout box */
+.prose-qp blockquote {
+  border: none;
+  border-radius: 0.75rem;
+  background: rgb(var(--primary) / 0.07);
+  border-left: 4px solid rgb(var(--primary));
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  color: rgb(var(--ink));
+  font-weight: 600;
+}
+.prose-qp code {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  background: rgb(var(--elevated));
+  color: rgb(var(--primary));
+  padding: 0.1em 0.4em;
+  border-radius: 0.3rem;
+  font-weight: 600;
+}
+.prose-qp pre {
+  background: rgb(var(--sidebar));
+  border-radius: 0.75rem;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.9rem 0;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+.prose-qp pre code { background: none; padding: 0; color: rgb(var(--on-dark)); font-weight: 400; }
+.prose-qp hr { border: none; border-top: 1px solid rgb(var(--border)); margin: 1.4rem 0; }
+.prose-qp table { width: 100%; border-collapse: collapse; margin: 0.9rem 0; font-size: 0.88rem; }
+.prose-qp th, .prose-qp td { border: 1px solid rgb(var(--border)); padding: 0.45rem 0.7rem; text-align: left; }
+.prose-qp th { background: rgb(var(--elevated)); font-weight: 700; }
+
+/* "Interview answer" section — special green highlight box */
+.prose-qp .interview-box {
+  background: rgb(var(--success) / 0.07);
+  border: 1.5px solid rgb(var(--success) / 0.35);
+  border-radius: 1rem;
+  padding: 1rem 1.2rem;
+  margin: 1.2rem 0 0;
+}
+.prose-qp .interview-box-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgb(var(--success));
+  margin-bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Hinglish variant — slightly warm tint */
+.prose-qp-hi {
+  background: rgb(var(--yellow) / 0.04);
+  border-radius: 0.75rem;
+  padding: 0.1rem 0;
+}
+
 @keyframes fade-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }

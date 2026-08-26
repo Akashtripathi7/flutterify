@@ -21,16 +21,17 @@ create policy "qp_sessions: self all" on public.quick_prep_sessions
 
 create index if not exists qp_sessions_user_idx on public.quick_prep_sessions (user_id, created_at desc);
 
--- Questions: individual Q+A rows, belong to a session
+-- Questions: individual rows — stored immediately, answers generated on demand
 create table if not exists public.quick_prep_questions (
-  id          uuid primary key default gen_random_uuid(),
-  session_id  uuid not null references public.quick_prep_sessions (id) on delete cascade,
-  user_id     uuid not null references auth.users (id) on delete cascade,
-  question    text not null,
-  answer_md   text not null,           -- model answer markdown
-  followup_md text,                    -- follow-up Q&As markdown
-  position    int  not null default 0, -- ordering within session
-  created_at  timestamptz not null default now()
+  id              uuid primary key default gen_random_uuid(),
+  session_id      uuid not null references public.quick_prep_sessions (id) on delete cascade,
+  user_id         uuid not null references auth.users (id) on delete cascade,
+  question        text not null,
+  answer_md       text,                    -- null until user taps "Generate answer"
+  answer_hi_md    text,                    -- Hinglish version, null until generated
+  followup_md     text,                    -- null until user taps "Generate follow-ups"
+  position        int  not null default 0, -- ordering within session
+  created_at      timestamptz not null default now()
 );
 
 alter table public.quick_prep_questions enable row level security;

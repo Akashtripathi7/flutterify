@@ -1,17 +1,22 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
-  QUICK_PREP_SYSTEM,
+  QUICK_PREP_QUESTIONS_SYSTEM,
+  QUICK_PREP_ANSWER_SYSTEM,
+  QUICK_PREP_ANSWER_HINGLISH_SYSTEM,
+  QUICK_PREP_FOLLOWUP_SYSTEM,
   buildQuickPrepResumePrompt,
   buildQuickPrepJDPrompt,
+  buildQuickPrepAnswerPrompt,
+  buildQuickPrepFollowupPrompt,
 } from "@/lib/prompts";
 
 export const maxDuration = 60;
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 const API_KEY = process.env.GEMINI_API_KEY || "";
+const DAILY_LIMIT = Number(process.env.DAILY_TOKEN_LIMIT || 200000);
 
-// Resume embedded in source — env var overrides if set.
 export const RESUME_TEXT = process.env.RESUME_TEXT || `Akash Tripathi — Senior Flutter Developer (4 years)
 Mumbai, India | github.com/Akashtripathi7
 
@@ -60,10 +65,12 @@ ACHIEVEMENTS
 - Anveshana 2020: Led Smart City IoT project; mentored students; consolation prize
 - Covid-19 Bioinformatics Hackathon Finalist: Developed Android safety-feature app`;
 
-// How many questions to generate per batch (keeps each call under 60s).
-const BATCH_SIZE = 5;
-
-async function callGemini(systemPrompt: string, userPrompt: string): Promise<string> {
+// ── Gemini helper ──────────────────────────────────────────────────────────
+async function callGemini(
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens = 8192,
+): Promise<{ text: string; tokens: number }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
   const res = await fetch(url, {
     method: "POST",
@@ -71,65 +78,42 @@ async function callGemini(systemPrompt: string, userPrompt: string): Promise<str
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 16384 },
+      generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
     }),
   });
-
   if (!res.ok) {
     const raw = await res.text();
     let msg = `Gemini error (${res.status})`;
-    try { const j = JSON.parse(raw); if (j?.error?.message) msg = j.error.message; } catch { /* */ }
+    try { const j = JSON.parse(raw); if (j?.error?.message) msg = j.error.message; } catch { /**/ }
     throw new Error(msg);
   }
-
   const data = await res.json();
   const text = data?.candidates?.[0]?.content?.parts
     ?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
-  const tokens = (data?.usageMetadata?.promptTokenCount ?? 0) +
+  const tokens =
+    (data?.usageMetadata?.promptTokenCount ?? 0) +
     (data?.usageMetadata?.candidatesTokenCount ?? 0);
-  return JSON.stringify({ text, tokens });
+  return { text, tokens };
 }
 
-// Parse "## Q{N}: question" blocks from the markdown.
-function parseBlocks(md: string): { question: string; answerMd: string; followupMd: string }[] {
-  const lines = md.split("\n");
-  const blocks: { question: string; answerMd: string; followupMd: string }[] = [];
-  let curQ = "";
-  let curBody: string[] = [];
-
-  const flush = () => {
-    if (!curQ) return;
-    const full = curBody.join("\n").trim();
-    const fuIdx = full.search(/###\s+Follow-up questions/i);
-    const mainBody = fuIdx === -1 ? full : full.slice(0, fuIdx).trim();
-    // Strip the "### Follow-up questions" heading from the followup section
-    const followupRaw = fuIdx === -1 ? "" : full.slice(fuIdx);
-    const followupMd = followupRaw.replace(/^###\s+Follow-up questions[^\n]*/i, "").trim();
-    if (curQ && mainBody) blocks.push({ question: curQ, answerMd: mainBody, followupMd });
-  };
-
-  for (const line of lines) {
-    // Tolerant: ## Q1: / ## Q1. / ## Question 1: / ## **Q1:** / ### Q1:
-    const m = /^#{2,3}\s+\*{0,2}Q(?:uestion)?\s*\d+[.:)]\*{0,2}\s*(.+)/i.exec(line);
-    if (m) {
-      flush();
-      curQ = m[1].replace(/\*{1,2}/g, "").trim();
-      curBody = [];
-    } else if (curQ) {
-      curBody.push(line);
-    }
-  }
-  flush();
-  return blocks;
+// ── Parse "Q1: text" question list ────────────────────────────────────────
+function parseQuestionList(raw: string): string[] {
+  return raw
+    .split("\n")
+    .map((l) => l.replace(/^Q\d+[.:)]\s*/i, "").trim())
+    .filter((l) => l.length > 10);
 }
 
-// ---- POST /api/quick-prep ------------------------------------------------
-// Actions:
-//   "init"        — create or find existing session, return session row
-//   "generate"    — generate a batch of questions for a session
-//   "delete_q"    — delete a single question
-//   "delete_session" — delete a whole session
-// --------------------------------------------------------------------------
+// ── Daily token budget check ───────────────────────────────────────────────
+async function checkBudget(supabase: Awaited<ReturnType<typeof createClient>>, userId: string) {
+  const today = new Date().toISOString().slice(0, 10);
+  const { data } = await supabase
+    .from("token_usage").select("tokens_used")
+    .eq("user_id", userId).eq("usage_date", today).maybeSingle();
+  return (data?.tokens_used ?? 0) >= DAILY_LIMIT;
+}
+
+// ── POST /api/quick-prep ───────────────────────────────────────────────────
 export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -138,170 +122,205 @@ export async function POST(req: Request) {
 
   let body: {
     action?: string;
-    type?: string;       // "resume" | "jd"
+    type?: string;
     jdText?: string;
     sessionId?: string;
     title?: string;
     questionId?: string;
-    existingQuestions?: string[]; // question texts already in the session
+    existingQuestions?: string[];
+    regenerate?: boolean;
   };
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: "Bad request." }, { status: 400 }); }
 
   const { action = "generate" } = body;
 
-  // ---- delete a single question ------------------------------------------
+  // ── delete_q ──────────────────────────────────────────────────────────────
   if (action === "delete_q") {
     if (!body.questionId) return NextResponse.json({ error: "questionId required." }, { status: 400 });
-    const { error } = await supabase
-      .from("quick_prep_questions")
-      .delete()
-      .eq("id", body.questionId)
-      .eq("user_id", user.id);
+    const { error } = await supabase.from("quick_prep_questions")
+      .delete().eq("id", body.questionId).eq("user_id", user.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   }
 
-  // ---- delete a whole session ---------------------------------------------
+  // ── delete_session ────────────────────────────────────────────────────────
   if (action === "delete_session") {
     if (!body.sessionId) return NextResponse.json({ error: "sessionId required." }, { status: 400 });
-    const { error } = await supabase
-      .from("quick_prep_sessions")
-      .delete()
-      .eq("id", body.sessionId)
-      .eq("user_id", user.id);
+    const { error } = await supabase.from("quick_prep_sessions")
+      .delete().eq("id", body.sessionId).eq("user_id", user.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   }
 
-  // ---- init: upsert session (resume always same row; jd creates new) ------
+  // ── init session ──────────────────────────────────────────────────────────
   if (action === "init") {
     const type = body.type;
     if (type !== "resume" && type !== "jd")
       return NextResponse.json({ error: "type must be resume or jd." }, { status: 400 });
     if (type === "jd" && !body.jdText?.trim())
-      return NextResponse.json({ error: "jdText required for jd type." }, { status: 400 });
+      return NextResponse.json({ error: "jdText required." }, { status: 400 });
 
     if (type === "resume") {
-      // Find or create the single resume session for this user.
-      const { data: existing } = await supabase
-        .from("quick_prep_sessions")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("type", "resume")
-        .maybeSingle();
+      const { data: existing } = await supabase.from("quick_prep_sessions")
+        .select("*").eq("user_id", user.id).eq("type", "resume").maybeSingle();
       if (existing) return NextResponse.json({ session: existing });
-
-      const { data: created, error } = await supabase
-        .from("quick_prep_sessions")
+      const { data: created, error } = await supabase.from("quick_prep_sessions")
         .insert({ user_id: user.id, type: "resume", title: "My Resume" })
-        .select()
-        .single();
+        .select().single();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ session: created });
     }
 
-    // JD: extract a title from the JD text (first non-empty line ≤ 60 chars)
-    const jdTitle = body.title ||
-      (body.jdText!.split("\n").find((l) => l.trim().length > 3 && l.trim().length <= 80)?.trim().slice(0, 60)) ||
+    const jdTitle =
+      body.title ||
+      body.jdText!.split("\n").find((l) => l.trim().length > 3 && l.trim().length <= 80)?.trim().slice(0, 60) ||
       "JD Session";
-
-    const { data: created, error } = await supabase
-      .from("quick_prep_sessions")
+    const { data: created, error } = await supabase.from("quick_prep_sessions")
       .insert({ user_id: user.id, type: "jd", title: jdTitle, jd_text: body.jdText })
-      .select()
-      .single();
+      .select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ session: created });
   }
 
-  // ---- generate: produce a batch of questions for a session ---------------
+  // ── generate questions batch (titles only, no answers) ───────────────────
   if (action === "generate") {
     if (!body.sessionId) return NextResponse.json({ error: "sessionId required." }, { status: 400 });
 
-    // Verify session belongs to user
-    const { data: session } = await supabase
-      .from("quick_prep_sessions")
-      .select("*")
-      .eq("id", body.sessionId)
-      .eq("user_id", user.id)
-      .maybeSingle();
+    const { data: session } = await supabase.from("quick_prep_sessions")
+      .select("*").eq("id", body.sessionId).eq("user_id", user.id).maybeSingle();
     if (!session) return NextResponse.json({ error: "Session not found." }, { status: 404 });
 
-    // Check daily token budget
-    const DAILY_LIMIT = Number(process.env.DAILY_TOKEN_LIMIT || 200000);
-    const today = new Date().toISOString().slice(0, 10);
-    const { data: usage } = await supabase
-      .from("token_usage").select("tokens_used")
-      .eq("user_id", user.id).eq("usage_date", today).maybeSingle();
-    if ((usage?.tokens_used ?? 0) >= DAILY_LIMIT) {
+    if (await checkBudget(supabase, user.id))
       return NextResponse.json({ error: "Daily token limit reached. Resets tomorrow.", limitReached: true }, { status: 429 });
-    }
 
     const existingQs = body.existingQuestions ?? [];
-    const isResume = session.type === "resume";
+    const BATCH = 5;
 
-    const userPrompt = isResume
-      ? buildQuickPrepResumePrompt({ resumeText: RESUME_TEXT, batchSize: BATCH_SIZE, existingQuestions: existingQs })
-      : buildQuickPrepJDPrompt({ jdText: session.jd_text!, resumeText: RESUME_TEXT, batchSize: BATCH_SIZE, existingQuestions: existingQs });
+    const userPrompt = session.type === "resume"
+      ? buildQuickPrepResumePrompt({ resumeText: RESUME_TEXT, batchSize: BATCH, existingQuestions: existingQs })
+      : buildQuickPrepJDPrompt({ jdText: session.jd_text!, resumeText: RESUME_TEXT, batchSize: BATCH, existingQuestions: existingQs });
 
-    let text = "";
-    let tokens = 0;
-    try {
-      const raw = await callGemini(QUICK_PREP_SYSTEM, userPrompt);
-      const parsed = JSON.parse(raw);
-      text = parsed.text;
-      tokens = parsed.tokens;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "AI error";
-      return NextResponse.json({ error: msg }, { status: 502 });
-    }
+    const { text, tokens } = await callGemini(QUICK_PREP_QUESTIONS_SYSTEM, userPrompt, 1024).catch((e) =>
+      NextResponse.json({ error: e.message }, { status: 502 }) as never,
+    );
 
-    if (!text.trim()) return NextResponse.json({ error: "AI returned empty response." }, { status: 502 });
+    const questions = parseQuestionList(text);
+    if (questions.length === 0)
+      return NextResponse.json({ error: "Could not parse questions. Try again." }, { status: 502 });
 
-    const blocks = parseBlocks(text);
-    if (blocks.length === 0) return NextResponse.json({ error: "Could not parse AI response. Try again." }, { status: 502 });
-
-    // Get current max position in this session
-    const { data: posRow } = await supabase
-      .from("quick_prep_questions")
-      .select("position")
-      .eq("session_id", body.sessionId)
-      .order("position", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { data: posRow } = await supabase.from("quick_prep_questions")
+      .select("position").eq("session_id", body.sessionId)
+      .order("position", { ascending: false }).limit(1).maybeSingle();
     const startPos = (posRow?.position ?? -1) + 1;
 
-    const rows = blocks.map((b, i) => ({
+    const rows = questions.map((q, i) => ({
       session_id: body.sessionId,
       user_id: user.id,
-      question: b.question,
-      answer_md: b.answerMd,
-      followup_md: b.followupMd,
+      question: q,
+      answer_md: null,
+      answer_hi_md: null,
+      followup_md: null,
       position: startPos + i,
     }));
 
     const { data: inserted, error: insertErr } = await supabase
-      .from("quick_prep_questions")
-      .insert(rows)
-      .select();
+      .from("quick_prep_questions").insert(rows).select();
     if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 });
 
-    // Record token spend (best-effort)
     await supabase.rpc("add_token_usage", { p_tokens: tokens });
-
-    // Bump session updated_at
     await supabase.from("quick_prep_sessions")
-      .update({ updated_at: new Date().toISOString() })
-      .eq("id", body.sessionId);
+      .update({ updated_at: new Date().toISOString() }).eq("id", body.sessionId);
 
     return NextResponse.json({ questions: inserted, tokensUsed: tokens });
+  }
+
+  // ── generate_answer — deep EN + Hinglish in parallel ────────────────────
+  if (action === "generate_answer") {
+    if (!body.questionId) return NextResponse.json({ error: "questionId required." }, { status: 400 });
+
+    const { data: qRow } = await supabase.from("quick_prep_questions")
+      .select("*, quick_prep_sessions(type, title, jd_text)")
+      .eq("id", body.questionId).eq("user_id", user.id).maybeSingle();
+    if (!qRow) return NextResponse.json({ error: "Question not found." }, { status: 404 });
+
+    // Serve from cache unless regenerate=true
+    if (!body.regenerate && qRow.answer_md) {
+      return NextResponse.json({ answer_md: qRow.answer_md, answer_hi_md: qRow.answer_hi_md, cached: true });
+    }
+
+    if (await checkBudget(supabase, user.id))
+      return NextResponse.json({ error: "Daily token limit reached.", limitReached: true }, { status: 429 });
+
+    const session = qRow.quick_prep_sessions as { type: string; title: string; jd_text: string | null };
+    const context = session.type === "resume" ? "Resume-based preparation" : `JD: ${session.title}`;
+
+    const userPrompt = buildQuickPrepAnswerPrompt({
+      question: qRow.question,
+      resumeText: RESUME_TEXT,
+      context,
+    });
+
+    // Fire EN + Hinglish in parallel
+    const [enResult, hiResult] = await Promise.all([
+      callGemini(QUICK_PREP_ANSWER_SYSTEM, userPrompt, 8192),
+      callGemini(QUICK_PREP_ANSWER_HINGLISH_SYSTEM, userPrompt, 6144),
+    ]).catch((e) => { throw new Error(e.message); });
+
+    const totalTokens = enResult.tokens + hiResult.tokens;
+
+    const { error: updateErr } = await supabase.from("quick_prep_questions")
+      .update({ answer_md: enResult.text, answer_hi_md: hiResult.text })
+      .eq("id", body.questionId);
+    if (updateErr) console.error("answer update failed:", updateErr);
+
+    await supabase.rpc("add_token_usage", { p_tokens: totalTokens });
+
+    return NextResponse.json({
+      answer_md: enResult.text,
+      answer_hi_md: hiResult.text,
+      cached: false,
+      tokensUsed: totalTokens,
+    });
+  }
+
+  // ── generate_followup ────────────────────────────────────────────────────
+  if (action === "generate_followup") {
+    if (!body.questionId) return NextResponse.json({ error: "questionId required." }, { status: 400 });
+
+    const { data: qRow } = await supabase.from("quick_prep_questions")
+      .select("question, answer_md, followup_md, user_id")
+      .eq("id", body.questionId).eq("user_id", user.id).maybeSingle();
+    if (!qRow) return NextResponse.json({ error: "Question not found." }, { status: 404 });
+    if (!qRow.answer_md) return NextResponse.json({ error: "Generate the answer first." }, { status: 400 });
+
+    if (!body.regenerate && qRow.followup_md)
+      return NextResponse.json({ followup_md: qRow.followup_md, cached: true });
+
+    if (await checkBudget(supabase, user.id))
+      return NextResponse.json({ error: "Daily token limit reached.", limitReached: true }, { status: 429 });
+
+    const userPrompt = buildQuickPrepFollowupPrompt({
+      question: qRow.question,
+      answerMd: qRow.answer_md,
+      resumeText: RESUME_TEXT,
+    });
+
+    const { text, tokens } = await callGemini(QUICK_PREP_FOLLOWUP_SYSTEM, userPrompt, 6144).catch((e) => {
+      throw new Error(e.message);
+    });
+
+    await supabase.from("quick_prep_questions")
+      .update({ followup_md: text }).eq("id", body.questionId);
+    await supabase.rpc("add_token_usage", { p_tokens: tokens });
+
+    return NextResponse.json({ followup_md: text, cached: false, tokensUsed: tokens });
   }
 
   return NextResponse.json({ error: "Unknown action." }, { status: 400 });
 }
 
-// ---- GET /api/quick-prep — list sessions + questions for the current user --
+// ── GET /api/quick-prep ────────────────────────────────────────────────────
 export async function GET(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -311,23 +330,15 @@ export async function GET(req: Request) {
   const sessionId = url.searchParams.get("sessionId");
 
   if (sessionId) {
-    // Return questions for a specific session
-    const { data, error } = await supabase
-      .from("quick_prep_questions")
-      .select("*")
-      .eq("session_id", sessionId)
-      .eq("user_id", user.id)
-      .order("position");
+    const { data, error } = await supabase.from("quick_prep_questions")
+      .select("*").eq("session_id", sessionId).eq("user_id", user.id).order("position");
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ questions: data });
   }
 
-  // Return all sessions for the user
-  const { data, error } = await supabase
-    .from("quick_prep_sessions")
+  const { data, error } = await supabase.from("quick_prep_sessions")
     .select("*, quick_prep_questions(count)")
-    .eq("user_id", user.id)
-    .order("updated_at", { ascending: false });
+    .eq("user_id", user.id).order("updated_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ sessions: data });
 }
