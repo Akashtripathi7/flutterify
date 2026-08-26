@@ -295,10 +295,10 @@ const SPECS = [
   },
   {
     parse: parseRoadmap,
-    file: "Track2_Dart_Flutter_DeepDive_60Days.md",
+    file: "Track2_Dart_Flutter_DeepDive_78Days.md",
     id: "track2",
     title: "Track 2 — Dart + Flutter Deep Dive",
-    subtitle: "60 days · Dart, Flutter internals, state, performance, system design",
+    subtitle: "78 days · Dart, Flutter internals, Web, payments, system design, domain scenarios",
     category: "Dart & Flutter",
   },
   {
