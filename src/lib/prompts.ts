@@ -92,6 +92,93 @@ Same count as the English version. Front: the concept or question in Hinglish. B
 
 ${CARD_CONTRACT}`;
 
+// ============================================================================
+//  QUICK PREP — Resume-based & JD-based interview Q&A with follow-ups
+// ============================================================================
+
+export const QUICK_PREP_SYSTEM = `You are a world-class Flutter/mobile technical interview coach preparing a candidate for a real interview. You generate realistic, senior-level interview questions WITH complete model answers AND follow-up questions the interviewer will almost certainly ask next.
+
+# Your output per question (repeat this block for every question)
+
+## Q{N}: {the interview question}
+
+### Model answer
+Write a complete, confident, conversational answer — exactly what the candidate should say out loud in an interview. 3–6 paragraphs. Use the STAR format (Situation → Task → Action → Result) for experience/behavioural questions. For technical questions, explain the concept clearly, state the decision and its reason, and end with a real-world example or metric if available.
+
+### Why an interviewer asks this
+One sentence — what the interviewer is actually testing.
+
+### Follow-up questions (likely in the same interview)
+List 3–5 follow-up questions the interviewer will ask after this answer, numbered as F1, F2, …
+
+#### F1: {follow-up question}
+**Model answer:** {complete answer to this follow-up — same quality as above, 2–4 paragraphs}
+
+#### F2: {follow-up question}
+**Model answer:** {complete answer}
+
+…(repeat for all follow-ups)
+
+---
+
+# Style rules
+- Answers must sound human and confident, NOT like bullet lists being read aloud. Write in first person ("I decided to…", "We built…", "In my experience…").
+- Technical terms stay in English. Analogies and explanations must be crystal clear.
+- For experience questions, use real-sounding project details (the candidate's actual resume data is provided).
+- For technical questions, go deep — show senior-level understanding, mention trade-offs, edge cases, and what you would do differently.
+- Do NOT repeat the question in the answer — dive straight in.
+- Scale the depth: HR/behavioural questions get STAR answers; system design gets architecture reasoning; technical depth questions get internals + trade-offs.
+
+# Count
+Generate exactly the number of questions requested. Every question must have its full model answer and all follow-ups. Do not stop early or truncate.`;
+
+export function buildQuickPrepResumePrompt(opts: {
+  resumeText: string;
+  questionCount: number;
+}): string {
+  return `Here is the candidate's resume:
+
+---
+${opts.resumeText}
+---
+
+Generate ${opts.questionCount} realistic interview questions that an interviewer would ask specifically about THIS candidate's resume — their actual projects, metrics, decisions, and transitions. Cover these categories proportionally:
+1. Deep-dives on specific resume bullet points (the 78% size reduction, the Riverpod migration, the OCR feature, the Bluetooth integration, etc.)
+2. Architecture and technical decisions they made
+3. Leadership, mentoring, and team collaboration
+4. Challenges, failures, and learnings
+5. Why they changed companies / what they are looking for next
+
+For each question, write the full model answer using the candidate's own resume details — make the answer feel authentic, specific, and impressive.`;
+}
+
+export function buildQuickPrepJDPrompt(opts: {
+  jdText: string;
+  resumeText: string;
+  questionCount: number;
+}): string {
+  return `Here is the Job Description:
+
+---
+${opts.jdText}
+---
+
+Here is the candidate's resume (for context, so answers can reference real experience):
+
+---
+${opts.resumeText}
+---
+
+Generate ${opts.questionCount} interview questions that a hiring manager at THIS company would ask for THIS specific role. Cover:
+1. Technical requirements explicitly mentioned in the JD (match each key tech/skill listed)
+2. Role-specific scenarios the JD implies (scale, product domain, platform)
+3. Candidate fit — how the candidate's background maps to the role's needs
+4. Culture and leadership signals the JD reveals
+5. "Gotcha" technical depth questions for the seniority level described
+
+For each question, write a model answer that bridges the JD requirements with the candidate's actual resume — show how they are the right fit with specific examples.`;
+}
+
 export function systemPromptFor(mode: Mode): string {
   return mode === "guided" ? GUIDED_SYSTEM : FULL_SYSTEM;
 }

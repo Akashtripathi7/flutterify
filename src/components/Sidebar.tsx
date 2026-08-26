@@ -4,11 +4,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { FolderClosed, Dumbbell, Settings, LogOut } from "lucide-react";
+import { FolderClosed, Dumbbell, Settings, LogOut, Zap } from "lucide-react";
 import { FlutterLogo } from "./FlutterLogo";
 
 const NAV = [
   { href: "/dashboard", icon: FolderClosed, label: "My learnings", locked: false },
+  { href: "/quick-prep", icon: Zap, label: "Quick Prepare", locked: false },
   { href: "/drills", icon: Dumbbell, label: "Drills (coming soon)", locked: true },
   { href: "/settings", icon: Settings, label: "Settings", locked: false },
 ];
@@ -53,7 +54,9 @@ export function Sidebar() {
           }
 
           const active =
-            item.href === pathname || (item.href === "/dashboard" && pathname.startsWith("/day"));
+            item.href === pathname ||
+            (item.href === "/dashboard" && (pathname.startsWith("/day") || pathname.startsWith("/question"))) ||
+            (item.href === "/quick-prep" && pathname.startsWith("/quick-prep"));
           return (
             <Link
               key={item.label}
