@@ -11,10 +11,53 @@ export const maxDuration = 120;
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 const API_KEY = process.env.GEMINI_API_KEY || "";
 
-// Resume text comes exclusively from the RESUME_TEXT environment variable.
-// Set it in Vercel dashboard (or .env.local) — never hardcode it in source.
-// See .env.local.example for the key name.
-const RESUME_TEXT = process.env.RESUME_TEXT ?? "";
+const RESUME_TEXT = process.env.RESUME_TEXT || `Akash Tripathi — Senior Flutter Developer (4 years)
+Mumbai, India | github.com/Akashtripathi7
+
+EXPERIENCE
+
+Nupipay — Senior Software Developer (Feb 2025 – Present), Mumbai
+- Architected and migrated codebase to Riverpod + MVC, improving maintainability and scalability
+- Mentored junior developers through daily code reviews, architectural guidance, and Flutter best practices
+- Reduced app size by 78% (150MB → 33MB), resulting in faster load times and better UX
+- Implemented QR-based deep linking
+- Rebuilt WebView e-commerce flows into native Flutter with custom animations, improving conversion rates
+- Integrated Firebase Crashlytics and resolved priority crashes; crash-free sessions improved past 95%
+- Built OCR-based invoice scanning feature
+- Implemented dynamic app icon switching using native Android and iOS code (no app update required)
+- Implemented Flutter flavors for environment-specific configuration (dev/staging/prod)
+- Live apps: Wonder WallCare, HomeSure Samriddhi, Nupi App, Diamond Club
+
+Handpickd — SDE-1 (Aug 2023 – Feb 2025), Gurgaon, Haryana (Hybrid)
+- Developed 9 mobile and 4 web apps including POS, WMS, FOS, and consumer delivery platforms
+- Integrated Bluetooth connectivity with weighing machines; real-time weight data auto-populates text fields
+- Integrated Mixpanel, Percept Insight, and Firebase Analytics for data-informed product improvements
+- Built background services that improved delivery operations efficiency by 25%
+- Led delivery of mission-critical apps: PPD, WMS, Delivery app
+
+Corpusvision — Flutter Developer (Jul 2022 – Aug 2023), Mumbai
+- Led frontend development for Coro Suite apps, improving UI consistency and performance
+- Independently developed and delivered Trient MedCare app end-to-end to production
+- Implemented MVC architecture for modular, reusable code
+
+SOV Technologies — Flutter Developer (Feb 2022 – Jun 2022), Mumbai
+- Developed admin panel for managing teachers, students, and schools with role-based access control
+- Built FishEye suite with real-time tracking, Firebase authentication, and image/location-based chat
+
+SKILLS
+Flutter/Dart, State Management (Riverpod, BLoC, GetX), Architecture (MVC, MVVM),
+REST APIs, FastAPI, Firebase Suite (Crashlytics, Analytics, Auth, Firestore),
+CI/CD (GitHub Actions), Analytics (Mixpanel, CleverTap, Firebase Analytics),
+App Performance Optimization, App Size Reduction, Flutter Flavors, OCR, Bluetooth BLE,
+Platform Channels (Android/iOS native), Team Leadership, Agile, Code Review
+
+EDUCATION
+Bachelor of Engineering — Viva Institute of Technology, Mumbai (2018–2022), CGPA: 7.8
+
+ACHIEVEMENTS
+- Eyantra Finalist (IIT Bombay): Built deep learning-powered water plastic cleanup bot
+- Anveshana 2020: Led Smart City IoT project; mentored students; consolation prize
+- Covid-19 Bioinformatics Hackathon Finalist: Developed Android safety-feature app`;
 
 async function callGemini(systemPrompt: string, userPrompt: string): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`;
@@ -58,12 +101,6 @@ export async function POST(req: Request) {
 
   if (!API_KEY) {
     return NextResponse.json({ error: "GEMINI_API_KEY is not set." }, { status: 500 });
-  }
-  if (!RESUME_TEXT.trim()) {
-    return NextResponse.json(
-      { error: "Resume data is not configured. Set the RESUME_TEXT environment variable in your Vercel dashboard or .env.local." },
-      { status: 500 },
-    );
   }
 
   let body: { type?: string; jdText?: string; questionCount?: number };
