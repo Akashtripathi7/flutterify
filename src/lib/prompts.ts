@@ -101,7 +101,7 @@ ${CARD_CONTRACT}`;
 // ============================================================================
 
 // ── 1. Question titles only ─────────────────────────────────────────────────
-export const QUICK_PREP_QUESTIONS_SYSTEM = `You are a senior technical interview coach. Output ONLY a numbered list of interview questions — no answers, no explanations.
+export const QUICK_PREP_QUESTIONS_SYSTEM = `You are a senior technical interview coach generating targeted interview questions.
 
 # Output format (STRICT)
 Output exactly N lines, each in this format:
@@ -109,7 +109,10 @@ Q1: The interview question goes here
 Q2: Another question
 Q3: ...
 
-No markdown headers. No bullet points. No blank lines between questions. No additional text before or after.`;
+No markdown headers. No bullet points. No blank lines between questions. No additional text before or after. Output ONLY the questions — no answers, no explanations.
+
+# CRITICAL RULE
+If a Job Description is provided, every question MUST be specific to that JD — the company's tech stack, the role's responsibilities, and the candidate's fit for that specific position. Do NOT generate generic resume questions when a JD is present.`;
 
 // ── 2. Deep answer for one question ────────────────────────────────────────
 export const QUICK_PREP_ANSWER_SYSTEM = `You are a world-class interview coach and senior Flutter/mobile engineer. Write a complete, deeply detailed model answer for ONE interview question. The candidate will use this to prepare and speak confidently in a real interview.
@@ -215,27 +218,34 @@ export function buildQuickPrepJDPrompt(opts: {
     ? `\nAlready generated (do NOT repeat):\n${opts.existingQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}\n`
     : "";
 
-  return `Job Description:
+  return `THIS IS A JD-BASED SESSION. You MUST generate questions specific to the job description below — NOT generic resume questions.
+
+Job Description:
 ---
 ${opts.jdText}
 ---
-Candidate Resume:
+Candidate Resume (for context only — questions must be driven by the JD):
 ---
 ${opts.resumeText}
 ---
 ${avoidBlock}
-Generate exactly ${opts.batchSize} NEW interview questions a hiring manager would ask for this role. Output ONLY questions in Q1:/Q2: format — no answers.
+Generate exactly ${opts.batchSize} NEW interview questions a hiring manager at this company would ask for THIS specific role. Output ONLY questions in Q1:/Q2: format — no answers.
 
-Cover: every key tech in the JD, role-specific scenarios, behavioral STAR situations, system design for this domain, seniority-level depth questions, culture/values fit, candidate-JD fit.`;
+Every question must reference the JD: the specific tech stack listed, the role's exact responsibilities, the seniority level, the domain (fintech / e-commerce / logistics / etc.), and candidate-JD fit. Do NOT generate questions that could belong to any generic Flutter interview — they must be unmistakably tied to this job description.`;
 }
 
 export function buildQuickPrepAnswerPrompt(opts: {
   question: string;
   resumeText: string;
-  context: string; // "Resume-based" or the JD title
+  context: string;
+  jdText?: string;
 }): string {
-  return `Context: ${opts.context}
+  const jdBlock = opts.jdText
+    ? `\nJob Description (this question is specific to this role — ground the answer in it):\n---\n${opts.jdText.slice(0, 3000)}\n---\n`
+    : "";
 
+  return `Context: ${opts.context}
+${jdBlock}
 Candidate resume:
 ---
 ${opts.resumeText}
@@ -243,7 +253,7 @@ ${opts.resumeText}
 
 Interview question: "${opts.question}"
 
-Write the full model answer for this question. Reference specific resume details (metrics, project names, decisions) wherever relevant. Be genuinely detailed — this is a study document.`;
+Write the full model answer for this question. Reference specific resume details (metrics, project names, decisions) wherever relevant.${opts.jdText ? " Also tie the answer to the specific role and company from the JD." : ""} Be genuinely detailed — this is a study document.`;
 }
 
 export function buildQuickPrepFollowupPrompt(opts: {

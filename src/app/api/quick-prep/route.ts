@@ -191,6 +191,13 @@ export async function POST(req: Request) {
       .select("*").eq("id", body.sessionId).eq("user_id", user.id).maybeSingle();
     if (!session) return NextResponse.json({ error: "Session not found." }, { status: 404 });
 
+    // Guard: JD sessions must have jd_text stored
+    if (session.type === "jd" && !session.jd_text?.trim()) {
+      return NextResponse.json({
+        error: "JD text is missing from this session. Please delete it and create a new JD session.",
+      }, { status: 400 });
+    }
+
     if (await checkBudget(supabase, user.id))
       return NextResponse.json({ error: "Daily token limit reached. Resets tomorrow.", limitReached: true }, { status: 429 });
 
@@ -199,7 +206,7 @@ export async function POST(req: Request) {
 
     const userPrompt = session.type === "resume"
       ? buildQuickPrepResumePrompt({ resumeText: RESUME_TEXT, batchSize: BATCH, existingQuestions: existingQs })
-      : buildQuickPrepJDPrompt({ jdText: session.jd_text!, resumeText: RESUME_TEXT, batchSize: BATCH, existingQuestions: existingQs });
+      : buildQuickPrepJDPrompt({ jdText: session.jd_text, resumeText: RESUME_TEXT, batchSize: BATCH, existingQuestions: existingQs });
 
     const { text, tokens } = await callGemini(QUICK_PREP_QUESTIONS_SYSTEM, userPrompt, 1024).catch((e) =>
       NextResponse.json({ error: e.message }, { status: 502 }) as never,
@@ -253,12 +260,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Daily token limit reached.", limitReached: true }, { status: 429 });
 
     const session = qRow.quick_prep_sessions as { type: string; title: string; jd_text: string | null };
-    const context = session.type === "resume" ? "Resume-based preparation" : `JD: ${session.title}`;
 
     const userPrompt = buildQuickPrepAnswerPrompt({
       question: qRow.question,
       resumeText: RESUME_TEXT,
-      context,
+      context: session.type === "resume" ? "Resume-based preparation" : `JD role: ${session.title}`,
+      jdText: session.type === "jd" ? (session.jd_text ?? undefined) : undefined,
     });
 
     // Fire EN + Hinglish in parallel
