@@ -51,41 +51,43 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
-// ── PDF extraction ─────────────────────────────────────────────────────────
+// ── PDF extraction via pdf.js (handles compressed PDFs) ───────────────────
 async function extractTextFromFile(file: File): Promise<string> {
-  if (file.size > 3 * 1024 * 1024)
-    throw new Error("File is too large (max 3 MB). Please paste the text directly.");
+  if (file.size > 5 * 1024 * 1024)
+    throw new Error("File is too large (max 5 MB). Please paste the text directly.");
   const name = file.name.toLowerCase();
   if (name.endsWith(".docx") || name.endsWith(".doc"))
     throw new Error(".doc/.docx files cannot be read directly. Please copy-paste the JD text below.");
+
   if (name.endsWith(".pdf")) {
+    // Dynamically load pdf.js from CDN
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let pdfjsLib: any;
+    try {
+      // @ts-expect-error — dynamic CDN import
+      pdfjsLib = await import("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.mjs");
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.mjs";
+    } catch {
+      throw new Error("Could not load PDF reader. Please paste the JD text directly.");
+    }
+
     const buf = await file.arrayBuffer();
-    const decoder = new TextDecoder("latin1");
-    const raw = decoder.decode(new Uint8Array(buf));
-    let text = "";
-    const btRe = /BT([\s\S]*?)ET/g;
-    const tjRe = /\(([^)]{2,})\)\s*Tj/g;
-    let btM;
-    while ((btM = btRe.exec(raw)) !== null) {
-      let tjM;
-      while ((tjM = tjRe.exec(btM[1])) !== null) text += tjM[1] + " ";
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const parts: string[] = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      parts.push(content.items.map((item: any) => item.str).join(" "));
     }
-    const tjArrRe = /\[([^\]]+)\]\s*TJ/g;
-    const strRe = /\(([^)]{2,})\)/g;
-    let arrM;
-    while ((arrM = tjArrRe.exec(raw)) !== null) {
-      let strM;
-      while ((strM = strRe.exec(arrM[1])) !== null) text += strM[1] + " ";
-    }
-    if (text.trim().length < 80) {
-      const runs = raw.match(/[\x20-\x7E]{15,}/g) ?? [];
-      text = runs.filter((r) => /[a-zA-Z]{4,}/.test(r) && !/^[\d\s.]+$/.test(r)).join(" ");
-    }
-    const cleaned = text.replace(/\s+/g, " ").trim().slice(0, 25000);
-    if (cleaned.length < 50)
-      throw new Error("This PDF uses compressed streams. Please paste the JD text directly.");
-    return cleaned;
+    const text = parts.join("\n").replace(/\s+/g, " ").trim().slice(0, 25000);
+    if (text.length < 50)
+      throw new Error("Could not extract text from this PDF. Please paste the JD text directly.");
+    return text;
   }
+
+  // .md / .txt
   return (await file.text()).slice(0, 25000);
 }
 
